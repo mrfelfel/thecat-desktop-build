@@ -66,16 +66,18 @@ jobs:
       - name: Free up disk space.
         # prepare.py writes Libraries/ and ThirdParty/ beside the checkout
         # (repo root), not inside tdesktop/.
-        # Only prune build intermediates (object files, static archives, build
-        # trees). Headers and every *.cpp/*.hpp stay: wallet_engine.cpp is a
-        # generated source that CMake compiles, so deleting it breaks configure.
+        # Remove only scratch data that nothing links against later: git
+        # metadata, package-manager caches and per-stage build trees. Nothing
+        # under Libraries/local/ is touched — that is the installed prefix the
+        # app and Qt's exported CMake targets reference, including static
+        # archives and the generated wallet_engine.cpp.
         run: |
-          find Libraries ThirdParty -type f \
-            \( -name '*.o' -o -name '*.obj' -o -name '*.a' -o -name '*.dylib' \
-               -o -name '*.so*' -o -name '*.pdb' -o -name '*.ilk' \) \
-            -delete
           find Libraries ThirdParty -type d \
-            \( -name '.git' -o -name 'build' -o -name 'out' \) -prune -exec rm -rf {} + 2>/dev/null || true
+            \( -name '.git' -o -name 'out' -o -name 'target' \
+               -o -name '.cargo' -o -name 'rustup' \) \
+            -prune -exec rm -rf {} + 2>/dev/null || true
+          find ThirdParty -maxdepth 3 -type d \( -name 'tmp' -o -name 'cache' \) \
+            -prune -exec rm -rf {} + 2>/dev/null || true
           df -h /
 
       - name: Configure and build.
