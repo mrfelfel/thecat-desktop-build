@@ -31,30 +31,40 @@ jobs:
 
     steps:
       - name: Clone.
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Expose ATL at the VC root.
         shell: pwsh
-        # breakpad's gyp-generated dump_syms.vcxproj hardcodes
-        # "$(VCInstallDir)VC\atlmfc\include". The image only ships ATL inside a
-        # toolset dir (VC\Tools\MSVC\<ver>\atlmfc) and has no VC\atlmfc at all,
-        # so the compile fails with C1083 atlbase.h / LNK1104 atls.lib even
-        # though MSBuild itself resolves ATL fine.
+        # breakpad's gyp-generated projects hardcode "$(VSInstallDir)/VC/atlmfc",
+        # i.e. VC\atlmfc at the install root. The runner image only ships ATL
+        # inside a toolset (VC\Tools\MSVC\<ver>\atlmfc) and has no VC\atlmfc, so
+        # dump_syms fails with C1083 atlbase.h and then LNK1104 atls.lib even
+        # though MSBuild resolves ATL on its own.
+        #
+        # A junction rather than a copy: ATL is small but version-locked, and a
+        # link keeps it identical to the toolset that actually compiles.
         run: |
           $vc = "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC"
           $root = Join-Path $vc "atlmfc"
           if (Test-Path (Join-Path $root "include\atlbase.h")) {
-            "ATL already at VC root"
+            "ATL already present at $root"
             exit 0
           }
+          # Newest toolset that actually ships ATL.
           $source = Get-ChildItem (Join-Path $vc "Tools\MSVC") -Directory |
-            ForEach-Object { Join-Path $_.FullName "atlmfc" } |
-            Where-Object { Test-Path (Join-Path $_ "include\atlbase.h") } |
-            Sort-Object { [version](Split-Path (Split-Path $_ -Parent) -Leaf) -replace '[^0-9.]','' } |
+            ForEach-Object {
+              $atl = Join-Path $_.FullName "atlmfc"
+              if (Test-Path (Join-Path $atl "include\atlbase.h")) {
+                [pscustomobject]@{ Path = $atl; Version = $_.Name }
+              }
+            } |
+            Sort-Object Version |
             Select-Object -Last 1
-          if (-not $source) { throw "no ATL headers under $vc\Tools\MSVC" }
-          New-Item -ItemType Junction -Path $root -Target $source -Force | Out-Null
-          "ATL junction: $root -> $source"
+          if (-not $source) { throw "no toolset under $vc\Tools\MSVC ships ATL" }
+          New-Item -ItemType Junction -Path $root -Target $source.Path -Force | Out-Null
+          "ATL ($($source.Version)): $root -> $($source.Path)"
+          "atlbase.h: $(Test-Path (Join-Path $root 'include\atlbase.h'))"
+          "atls.lib : $(Test-Path (Join-Path $root 'lib\x64\atls.lib'))"
 
       - name: Native tools environment.
         uses: Eden-CI/msvc-dev-cmd@master
@@ -66,21 +76,19 @@ jobs:
 
       - name: ThirdParty cache.
         id: cache-third-party
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ThirdParty
           key: ${{ runner.os }}-thecat-thirdparty-${{ hashFiles('tdesktop/Telegram/build/prepare/prepare.py') }}
           restore-keys: ${{ runner.os }}-thecat-thirdparty-
-          save-always: true
 
       - name: Libraries cache.
         id: cache-libs
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: Libraries
           key: ${{ runner.os }}-thecat-libs-${{ hashFiles('tdesktop/Telegram/build/prepare/prepare.py') }}
           restore-keys: ${{ runner.os }}-thecat-libs-
-          save-always: true
 
       - name: Patch, brand and prepare.
         shell: cmd
@@ -105,7 +113,7 @@ jobs:
           if exist tdesktop\out\Release\Updater.exe move tdesktop\out\Release\Updater.exe artifact\
 
       - name: Upload TheCat.exe.
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: TheCat-windows-x64
           path: artifact\
