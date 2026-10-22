@@ -20,6 +20,14 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent
 
+# Windows consoles default to a legacy code page that cannot encode "→" or the
+# Persian strings below; never let a print statement fail the build.
+for stream in (sys.stdout, sys.stderr):
+    try:
+        stream.reconfigure(errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
 
 def die(msg: str) -> None:
     print("ERROR:", msg, file=sys.stderr)
