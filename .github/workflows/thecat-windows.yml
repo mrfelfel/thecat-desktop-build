@@ -33,33 +33,14 @@ jobs:
       - name: Clone.
         uses: actions/checkout@v4
 
-      - name: Add ATL to the pinned toolset.
-        shell: pwsh
-        # prepare.py builds breakpad's dump_syms with msbuild /WX, which needs
-        # atlbase.h/atlcomcli.h (C1083) and atls.lib (LNK1104). The image
-        # installs ATL only for its default toolset, so the pinned 14.44 tree
-        # has no VC\atlmfc. Copy the ATL headers and libraries onto it.
-        run: |
-          $vs = "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC"
-          $target = Join-Path $vs "Tools\MSVC\14.44.35207\atlmfc"
-          if (Test-Path (Join-Path $target "lib")) { "ATL already present"; exit 0 }
-          $source = Join-Path $vs "atlmfc"
-          if (-not (Test-Path $source)) {
-            $source = (Get-ChildItem (Join-Path $vs "Tools\MSVC") -Directory |
-              ForEach-Object { Join-Path $_.FullName "atlmfc" } |
-              Where-Object { Test-Path $_ } | Select-Object -First 1)
-          }
-          if (-not $source) { throw "no ATL directory found under $vs" }
-          New-Item -ItemType Directory -Force $target | Out-Null
-          Copy-Item (Join-Path $source "include") $target -Recurse -Force
-          Copy-Item (Join-Path $source "lib") $target -Recurse -Force
-          "ATL: $source -> $target"
-
       - name: Native tools environment.
         uses: Eden-CI/msvc-dev-cmd@master
         with:
           arch: x64
-          toolset: '14.44'
+        # No toolset pin: run_cmake.py passes -T v143, which MSVC resolves to
+        # the newest installed toolset (14.51). Pinning 14.44 left the build on
+        # a compiler whose ATL is not installed on the image, and breakpad's
+        # dump_syms died first with C1083 (atlbase.h) then LNK1104 (atls.lib).
 
       - name: ThirdParty cache.
         id: cache-third-party
