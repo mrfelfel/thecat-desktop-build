@@ -1,0 +1,8 @@
+# Build artifacts — too big for GitHub (not committed)
+/Libraries/
+/ThirdParty/
+/tdesktop/out/
+
+# Nested git metadata of the old per-library clones (restorable: rename .git.disabled back)
+.git.disabled
+**/.git.disabled

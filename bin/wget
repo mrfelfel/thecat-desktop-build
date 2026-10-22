@@ -1,0 +1,42 @@
+#!/bin/bash
+# aria2c-backed wget shim for prepare stages (resume + multi-connection).
+# Only handles simple: wget [-flags] URL  → downloads basename into cwd.
+set -euo pipefail
+REAL=/usr/bin/wget
+if ! command -v aria2c >/dev/null 2>&1; then
+  exec "$REAL" "$@"
+fi
+url=""
+output=""
+continue_flag=1
+args=("$@")
+i=0
+while [ $i -lt ${#args[@]} ]; do
+  a="${args[$i]}"
+  case "$a" in
+    -O)
+      i=$((i+1)); output="${args[$i]}"
+      ;;
+    -O*)
+      output="${a#-O}"
+      ;;
+    -q|-nv|--no-verbose|-b|--background) ;;
+    http://*|https://*|ftp://*)
+      url="$a"
+      ;;
+  esac
+  i=$((i+1))
+done
+if [ -z "$url" ]; then
+  exec "$REAL" "$@"
+fi
+extra=()
+if [ -n "$output" ]; then
+  extra+=(-d "$(dirname "$output")" -o "$(basename "$output")")
+  mkdir -p "$(dirname "$output")"
+else
+  extra+=(-d .)
+fi
+exec aria2c -x8 -s8 -k1M --max-tries=20 --retry-wait=3 --timeout=30 \
+  --continue=true --allow-overwrite=true --auto-file-renaming=false \
+  --console-log-level=warn "${extra[@]}" "$url"
