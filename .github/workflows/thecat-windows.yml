@@ -33,14 +33,36 @@ jobs:
       - name: Clone.
         uses: actions/checkout@v4
 
+      - name: Expose ATL at the VC root.
+        shell: pwsh
+        # breakpad's gyp-generated dump_syms.vcxproj hardcodes
+        # "$(VCInstallDir)VC\atlmfc\include". The image only ships ATL inside a
+        # toolset dir (VC\Tools\MSVC\<ver>\atlmfc) and has no VC\atlmfc at all,
+        # so the compile fails with C1083 atlbase.h / LNK1104 atls.lib even
+        # though MSBuild itself resolves ATL fine.
+        run: |
+          $vc = "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC"
+          $root = Join-Path $vc "atlmfc"
+          if (Test-Path (Join-Path $root "include\atlbase.h")) {
+            "ATL already at VC root"
+            exit 0
+          }
+          $source = Get-ChildItem (Join-Path $vc "Tools\MSVC") -Directory |
+            ForEach-Object { Join-Path $_.FullName "atlmfc" } |
+            Where-Object { Test-Path (Join-Path $_ "include\atlbase.h") } |
+            Sort-Object { [version](Split-Path (Split-Path $_ -Parent) -Leaf) -replace '[^0-9.]','' } |
+            Select-Object -Last 1
+          if (-not $source) { throw "no ATL headers under $vc\Tools\MSVC" }
+          New-Item -ItemType Junction -Path $root -Target $source -Force | Out-Null
+          "ATL junction: $root -> $source"
+
       - name: Native tools environment.
         uses: Eden-CI/msvc-dev-cmd@master
         with:
           arch: x64
-        # No toolset pin: run_cmake.py passes -T v143, which MSVC resolves to
-        # the newest installed toolset (14.51). Pinning 14.44 left the build on
-        # a compiler whose ATL is not installed on the image, and breakpad's
-        # dump_syms died first with C1083 (atlbase.h) then LNK1104 (atls.lib).
+        # No toolset pin: run_cmake.py passes -T v143, which MSBuild resolves
+        # to the newest installed toolset. Pinning an older one left the build
+        # on a compiler whose ATL does not exist on the image.
 
       - name: ThirdParty cache.
         id: cache-third-party

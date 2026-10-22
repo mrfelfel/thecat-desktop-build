@@ -37,3 +37,35 @@ jobs:
         shell: pwsh
         run: |
           Get-Content tools/probe_atl.ps1 -Raw | Invoke-Expression
+
+      - name: After exposing ATL at the VC root.
+        shell: pwsh
+        run: |
+          $vc = "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC"
+          $root = Join-Path $vc "atlmfc"
+          if (-not (Test-Path (Join-Path $root "include\atlbase.h"))) {
+            $source = Get-ChildItem (Join-Path $vc "Tools\MSVC") -Directory |
+              ForEach-Object { Join-Path $_.FullName "atlmfc" } |
+              Where-Object { Test-Path (Join-Path $_ "include\atlbase.h") } |
+              Select-Object -Last 1
+            if (-not $source) { throw "no ATL headers found" }
+            New-Item -ItemType Junction -Path $root -Target $source -Force | Out-Null
+            "junction: $root -> $source"
+          }
+          "atlbase at root = $(Test-Path (Join-Path $root 'include\atlbase.h'))"
+
+      - name: Simulate breakpad's hardcoded include path.
+        shell: pwsh
+        run: |
+          $vsInstall = "C:\Program Files\Microsoft Visual Studio\18\Enterprise\"
+          $inc = $vsInstall + "VC\atlmfc\include"
+          $lib = $vsInstall + "VC\atlmfc\lib\x64"
+          "include=$inc exists=$(Test-Path (Join-Path $inc 'atlbase.h'))"
+          "lib=$lib exists=$(Test-Path (Join-Path $lib 'atls.lib'))"
+          New-Item -ItemType Directory -Force probe2 | Out-Null
+          Set-Location probe2
+          "#include <atlbase.h>" | Out-File -Encoding ascii t.cpp
+          "int main(){ return 0; }" | Out-File -Encoding ascii main.cpp
+          # Same shape as breakpad: /I with the hardcoded VC path, /WX /O2 /MT
+          & cl /c "/I$inc" /O2 /MT /WX t.cpp 2>&1 | Select-Object -First 5
+          "cl exit = $LASTEXITCODE"
