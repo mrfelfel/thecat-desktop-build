@@ -13,6 +13,8 @@ python "%REPO_ROOT%\patch_thecat_endpoint.py" "%TDESKTOP_SRC%\Telegram\SourceFil
 if errorlevel 1 exit /b 1
 
 echo ==^> 2/4 brand
+REM Icon resizing uses Pillow on Windows (sips exists only on macOS).
+python -c "import PIL" 2>nul || python -m pip install --quiet pillow
 python "%REPO_ROOT%\brand_thecat.py" --tdesktop "%TDESKTOP_SRC%"
 if errorlevel 1 exit /b 1
 

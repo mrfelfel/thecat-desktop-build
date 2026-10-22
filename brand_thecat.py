@@ -47,21 +47,39 @@ def replace_logos(src: pathlib.Path, logo: pathlib.Path) -> None:
             print(f"  skip ico {path.name}")
             continue
         try:
-            out = subprocess.check_output(
-                ["sips", "-g", "pixelWidth", "-g", "pixelHeight", str(path)],
-                text=True,
-            )
-            w = re.search(r"pixelWidth:\s*(\d+)", out).group(1)
-            h = re.search(r"pixelHeight:\s*(\d+)", out).group(1)
-            subprocess.check_call(
-                ["sips", "-z", h, w, str(logo), "--out", str(path)],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            print(f"  logo → {path.relative_to(src)} ({w}x{h})")
+            if sys.platform == "darwin":
+                resize_with_sips(logo, path)
+            else:
+                resize_with_pillow(logo, path)
+            print(f"  logo → {path.relative_to(src)}")
         except Exception as e:  # noqa: BLE001
             print(f"  FAILED {path}: {e}")
             raise
+
+
+def resize_with_sips(logo: pathlib.Path, target: pathlib.Path) -> None:
+    out = subprocess.check_output(
+        ["sips", "-g", "pixelWidth", "-g", "pixelHeight", str(target)],
+        text=True,
+    )
+    w = re.search(r"pixelWidth:\s*(\d+)", out).group(1)
+    h = re.search(r"pixelHeight:\s*(\d+)", out).group(1)
+    subprocess.check_call(
+        ["sips", "-z", h, w, str(logo), "--out", str(target)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def resize_with_pillow(logo: pathlib.Path, target: pathlib.Path) -> None:
+    try:
+        from PIL import Image
+    except ImportError:
+        die("Pillow is required to resize icons off macOS: pip install pillow")
+    with Image.open(target) as current:
+        size = current.size
+    with Image.open(logo) as source:
+        source.convert("RGBA").resize(size, Image.LANCZOS).save(target)
 
 
 TEXT_EXTS = {
