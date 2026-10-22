@@ -1,8 +1,23 @@
-# Build artifacts — too big for GitHub (not committed)
+# Build output and downloaded libraries — too big for git.
+# They are recreated by `./build_thecat.sh --prepare` (or deploy/prepare-win.bat).
+# prepare.py writes them next to the Telegram/ directory's parent, which is the
+# tdesktop checkout root; older local builds put them beside it, so ignore both.
 /Libraries/
 /ThirdParty/
+/tdesktop/Libraries/
+/tdesktop/ThirdParty/
 /tdesktop/out/
+/artifact/
 
-# Nested git metadata of the old per-library clones (restorable: rename .git.disabled back)
+# Local agent/tool state
+.claude/
+.DS_Store
+
+# Nested git metadata of the per-library clones vendored into tdesktop/
+# (the sources themselves are tracked; this file points into the old .git/modules).
 .git.disabled
 **/.git.disabled
+
+# Local build helper applied by build_thecat.sh in-place
+*.orig
+*.rej

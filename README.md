@@ -1,3 +1,5 @@
+<div dir="ltr">
+
 # 🐱 TheCat Desktop
 
 **TheCat — «کت» — a clean, fast desktop messenger for the catroom.ir community.**
@@ -35,48 +37,68 @@ Then sign in with your phone number and you're in.
 
 ---
 
-## Build it yourself
+## What's in this repository
 
-The whole app builds from this repo with publicly available tools.
+```
+brand_thecat.py           logos, links and app name → TheCat / کت
+patch_thecat_endpoint.py  built-in DCs + RSA keys for the catroom.ir server
+build_thecat.sh           patch → brand → prepare → configure → build
+logo.png / logo.svg       app artwork
+tdesktop/                 Telegram Desktop source (GPLv3), vendored in full
+.github/workflows/        TheCat Windows / TheCat macOS CI
+```
+
+The `tdesktop/` tree is the complete upstream Telegram Desktop source with all
+its submodules **vendored as regular files**, so a plain `git clone` is a
+complete, buildable tree — no `--recursive`, no network fetches for libraries.
+The upstream `.gitmodules` files are kept only as provenance notes; git does
+not treat the directories as submodules.
+
+---
+
+## Build it yourself
 
 ### Requirements
 
-- **Windows:** Visual Studio 2022 Build Tools with the Desktop C++ workload
+- **Windows:** Visual Studio 2022/2026 Build Tools with the Desktop C++ workload
 - **macOS:** Xcode command line tools + [Homebrew](https://brew.sh)
 - Git, CMake 3.22+, Python 3
 - ~55 GB of free disk space (Qt and media libraries are built from source)
 
-### macOS (local build)
+### macOS / Linux (local build)
 
 ```bash
-brew install git automake libtool cmake wget pkg-config gnu-tar ninja nasm meson
-git clone --recursive https://github.com/mrfelfel/thecat-desktop.git
-cd thecat-desktop
+git clone https://github.com/mrfelfel/thecat-desktop-build.git
+cd thecat-desktop-build
 
-./Telegram/build/prepare/mac.sh
+# Full build, including Qt and media libraries from source:
+./build_thecat.sh --prepare
 
-cd Telegram
-export QT=6.11.2
-./configure.sh -D TDESKTOP_API_ID=17349 -D TDESKTOP_API_HASH=344583e45741c457fe1862106095a5eb
-cd ..
-cmake --build out --config Release --target Telegram -- -jobs 8
+# Or, if you already have Libraries/ and ThirdParty/ prepared:
+./build_thecat.sh
 ```
 
-Result: `out/Release/TheCat.app`.
+Result: `tdesktop/out/Release/TheCat.app`.
+
+Equivalent manual steps:
+
+```bash
+python3 patch_thecat_endpoint.py
+python3 brand_thecat.py
+(cd tdesktop/Telegram && ../build/prepare/mac.sh)   # or linux.sh
+(cd tdesktop/Telegram && ./configure.sh \
+   -D TDESKTOP_API_ID=17349 \
+   -D TDESKTOP_API_HASH=344583e45741c457fe1862106095a5eb)
+cmake --build tdesktop/out --config Release --target Telegram
+```
 
 ### Windows (CI)
 
 Push to `main`, or start workflow **TheCat Windows** manually from the
 **Actions** tab. Output: `TheCat.exe` in the build artifact.
 
-### Linux
-
-```bash
-./build-linux.sh
-```
-
-> Changing display names in `CMakeLists.txt` (for example `output_name`)
-> re-runs CMake configuration during the build.
+`deploy/prepare-win.bat` is the Windows entry point used by CI: it patches,
+brands, prepares the libraries and configures the project.
 
 ---
 
@@ -131,4 +153,5 @@ official Telegram services.
 [gpl]: https://www.gnu.org/licenses/gpl-3.0.en.html
 [tdesktop]: https://github.com/telegramdesktop/tdesktop
 [catroom]: https://catroom.ir
-[releases]: https://github.com/mrfelfel/thecat-desktop/releases
+
+</div>

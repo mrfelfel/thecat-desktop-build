@@ -1,0 +1,111 @@
+name: TheCat macOS
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'logo.*'
+      - '.github/**'
+      - '!.github/workflows/thecat-macos.yml'
+  pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'logo.*'
+      - '.github/**'
+      - '!.github/workflows/thecat-macos.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    name: TheCat macOS arm64
+    runs-on: macos-latest
+
+    env:
+      TDESKTOP_SRC: ${{ github.workspace }}/tdesktop
+      BUILD_TYPE: Release
+
+    steps:
+      - name: Clone.
+        uses: actions/checkout@v4
+
+      - name: Set up Homebrew toolchain.
+        run: |
+          sudo chown -R `whoami`:admin /usr/local/share
+          brew update
+          brew upgrade || true
+          brew install automake libtool meson nasm ninja pkg-config
+          sudo mdutil -a -i off
+          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          # Keep debug symbols out of the Release build; the tree is huge.
+          sudo sed -i '' '/CMAKE_${lang}_FLAGS_DEBUG_INIT/s/ -g//' /opt/homebrew/share/cmake/Modules/Compiler/GNU.cmake
+
+      - name: Libraries cache.
+        id: cache-libs
+        uses: actions/cache@v4
+        with:
+          path: |
+            tdesktop/Libraries
+            tdesktop/ThirdParty
+          key: ${{ runner.os }}-thecat-libs-${{ hashFiles('tdesktop/Telegram/build/prepare/prepare.py') }}
+          restore-keys: ${{ runner.os }}-thecat-libs-
+          save-always: true
+
+      - name: Patch and brand.
+        run: |
+          python3 patch_thecat_endpoint.py
+          python3 brand_thecat.py
+
+      - name: Prepare libraries.
+        run: ./tdesktop/Telegram/build/prepare/mac.sh skip-release silent
+
+      - name: Free up disk space.
+        # Only prune build intermediates (object files, static archives, build
+        # trees). Headers and every *.cpp/*.hpp stay: wallet_engine.cpp is a
+        # generated source that CMake compiles, so deleting it breaks configure.
+        run: |
+          find tdesktop/Libraries tdesktop/ThirdParty -type f \
+            \( -name '*.o' -o -name '*.obj' -o -name '*.a' -o -name '*.dylib' \
+               -o -name '*.so*' -o -name '*.pdb' -o -name '*.ilk' \) \
+            -delete
+          find tdesktop/Libraries tdesktop/ThirdParty -type d \
+            \( -name '.git' -o -name 'build' -o -name 'out' \) -prune -exec rm -rf {} + 2>/dev/null || true
+          df -h /
+
+      - name: Configure and build.
+        run: |
+          cd tdesktop/Telegram
+          # Test-only Telegram API credentials; theCat's server does not validate api_id.
+          ./configure.sh \
+            -D CMAKE_CONFIGURATION_TYPES=Release \
+            -D CMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO \
+            -D TDESKTOP_API_ID=17349 \
+            -D TDESKTOP_API_HASH=344583e45741c457fe1862106095a5eb \
+            -D DESKTOP_APP_DISABLE_AUTOUPDATE=ON \
+            -D DESKTOP_APP_DISABLE_CRASH_REPORTS=ON
+          cmake --build ../out --config Release --target Telegram --parallel
+
+      - name: Package TheCat.app.
+        run: |
+          cd tdesktop/out/Release
+          APP=$(find . -maxdepth 1 -name '*.app' -print -quit)
+          if [ -z "$APP" ]; then
+            echo "::error::no .app bundle in out/Release"
+            ls -la
+            exit 1
+          fi
+          echo "Packing $APP"
+          # ditto preserves the executable bit and bundle layout.
+          mkdir -p artifact
+          ditto -c -k --sequesterRsrc --keepParent "$APP" artifact/TheCat-macos-arm64.zip
+
+      - name: Upload TheCat macOS.
+        uses: actions/upload-artifact@v4
+        with:
+          name: TheCat-macos-arm64
+          path: tdesktop/out/Release/artifact/
+          retention-days: 14

@@ -1,0 +1,87 @@
+name: TheCat Windows
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'logo.*'
+      - '.github/**'
+      - '!.github/workflows/thecat-windows.yml'
+  pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'logo.*'
+      - '.github/**'
+      - '!.github/workflows/thecat-windows.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: TheCat Windows x64
+    runs-on: windows-latest
+
+    env:
+      TDESKTOP_SRC: ${{ github.workspace }}\tdesktop
+      BUILD_TYPE: Release
+
+    steps:
+      - name: Clone.
+        uses: actions/checkout@v4
+
+      - name: Native tools environment.
+        uses: Eden-CI/msvc-dev-cmd@master
+        with:
+          arch: x64
+          toolset: '14.44'
+
+      - name: ThirdParty cache.
+        id: cache-third-party
+        uses: actions/cache@v4
+        with:
+          path: tdesktop\ThirdParty
+          key: ${{ runner.os }}-thecat-thirdparty-${{ hashFiles('tdesktop/Telegram/build/prepare/prepare.py') }}
+          restore-keys: ${{ runner.os }}-thecat-thirdparty-
+          save-always: true
+
+      - name: Libraries cache.
+        id: cache-libs
+        uses: actions/cache@v4
+        with:
+          path: tdesktop\Libraries
+          key: ${{ runner.os }}-thecat-libs-${{ hashFiles('tdesktop/Telegram/build/prepare/prepare.py') }}
+          restore-keys: ${{ runner.os }}-thecat-libs-
+          save-always: true
+
+      - name: Patch, brand and prepare.
+        shell: cmd
+        run: call deploy\prepare-win.bat
+
+      - name: Build TheCat.
+        shell: cmd
+        run: |
+          cd /d %TDESKTOP_SRC%
+          cmake --build out --config %BUILD_TYPE% --target Telegram --parallel
+
+      - name: Collect TheCat.exe.
+        shell: cmd
+        run: |
+          if not exist tdesktop\out\Release\TheCat.exe (
+            echo ::error::build produced no TheCat.exe
+            dir tdesktop\out\Release
+            exit /b 1
+          )
+          mkdir artifact
+          move tdesktop\out\Release\TheCat.exe artifact\
+          if exist tdesktop\out\Release\Updater.exe move tdesktop\out\Release\Updater.exe artifact\
+
+      - name: Upload TheCat.exe.
+        uses: actions/upload-artifact@v4
+        with:
+          name: TheCat-windows-x64
+          path: artifact\
+          retention-days: 14

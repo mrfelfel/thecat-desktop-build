@@ -4,8 +4,8 @@ import pathlib
 import re
 import sys
 
-path = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else
-    "/Volumes/SADDISK/owpengram-build/tdesktop/Telegram/SourceFiles/mtproto/mtproto_dc_options.cpp")
+default = pathlib.Path(__file__).resolve().parent / "tdesktop/Telegram/SourceFiles/mtproto/mtproto_dc_options.cpp"
+path = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else default
 text = path.read_text()
 
 # DC2 (server-reported) → public MTProto endpoint.
