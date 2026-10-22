@@ -33,6 +33,28 @@ jobs:
       - name: Clone.
         uses: actions/checkout@v4
 
+      - name: Add ATL headers to the pinned toolset.
+        shell: pwsh
+        # prepare.py builds breakpad's dump_syms with msbuild /WX, which needs
+        # atlbase.h and atlcomcli.h. The image installs ATL only for its
+        # default toolset, so a pinned 14.44 config has no VC\atlmfc\include
+        # and the build fails with C1083. The ATL headers are
+        # toolset-independent, so provide them on the 14.44 tree.
+        run: |
+          $vs = "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC"
+          $target = Join-Path $vs "Tools\MSVC\14.44.35207\atlmfc\include"
+          $source = Join-Path $vs "atlmfc\include"
+          if (Test-Path $target) { exit 0 }
+          if (-not (Test-Path $source)) {
+            $source = (Get-ChildItem (Join-Path $vs "Tools\MSVC") -Directory |
+              ForEach-Object { Join-Path $_.FullName "atlmfc\include" } |
+              Where-Object { Test-Path $_ } | Select-Object -First 1)
+          }
+          if (-not $source) { throw "no ATL headers found under $vs" }
+          New-Item -ItemType Directory -Force (Split-Path $target) | Out-Null
+          Copy-Item $source $target -Recurse -Force
+          "ATL: $source -> $target"
+
       - name: Native tools environment.
         uses: Eden-CI/msvc-dev-cmd@master
         with:
