@@ -49,8 +49,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            tdesktop/Libraries
-            tdesktop/ThirdParty
+            Libraries
+            ThirdParty
           key: ${{ runner.os }}-thecat-libs-${{ hashFiles('tdesktop/Telegram/build/prepare/prepare.py') }}
           restore-keys: ${{ runner.os }}-thecat-libs-
           save-always: true
@@ -64,15 +64,17 @@ jobs:
         run: ./tdesktop/Telegram/build/prepare/mac.sh skip-release silent
 
       - name: Free up disk space.
+        # prepare.py writes Libraries/ and ThirdParty/ beside the checkout
+        # (repo root), not inside tdesktop/.
         # Only prune build intermediates (object files, static archives, build
         # trees). Headers and every *.cpp/*.hpp stay: wallet_engine.cpp is a
         # generated source that CMake compiles, so deleting it breaks configure.
         run: |
-          find tdesktop/Libraries tdesktop/ThirdParty -type f \
+          find Libraries ThirdParty -type f \
             \( -name '*.o' -o -name '*.obj' -o -name '*.a' -o -name '*.dylib' \
                -o -name '*.so*' -o -name '*.pdb' -o -name '*.ilk' \) \
             -delete
-          find tdesktop/Libraries tdesktop/ThirdParty -type d \
+          find Libraries ThirdParty -type d \
             \( -name '.git' -o -name 'build' -o -name 'out' \) -prune -exec rm -rf {} + 2>/dev/null || true
           df -h /
 

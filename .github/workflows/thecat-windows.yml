@@ -65,7 +65,7 @@ jobs:
         id: cache-third-party
         uses: actions/cache@v4
         with:
-          path: tdesktop\ThirdParty
+          path: ThirdParty
           key: ${{ runner.os }}-thecat-thirdparty-${{ hashFiles('tdesktop/Telegram/build/prepare/prepare.py') }}
           restore-keys: ${{ runner.os }}-thecat-thirdparty-
           save-always: true
@@ -74,7 +74,7 @@ jobs:
         id: cache-libs
         uses: actions/cache@v4
         with:
-          path: tdesktop\Libraries
+          path: Libraries
           key: ${{ runner.os }}-thecat-libs-${{ hashFiles('tdesktop/Telegram/build/prepare/prepare.py') }}
           restore-keys: ${{ runner.os }}-thecat-libs-
           save-always: true
