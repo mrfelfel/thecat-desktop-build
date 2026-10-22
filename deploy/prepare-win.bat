@@ -29,8 +29,10 @@ if errorlevel 1 (
 )
 
 echo ==^> 4/4 configure
+REM x64 must be passed explicitly: without it run_cmake falls back to -AWin32,
+REM and then cmake looks for Qt in Libraries\local instead of Libraries\win64.
 REM Test-only Telegram API credentials; theCat's server does not validate api_id.
-call configure.bat -D TDESKTOP_API_ID=17349 -D TDESKTOP_API_HASH=344583e45741c457fe1862106095a5eb -D CMAKE_CONFIGURATION_TYPES=Release -D DESKTOP_APP_DISABLE_AUTOUPDATE=ON -D DESKTOP_APP_DISABLE_CRASH_REPORTS=ON
+call configure.bat x64 -D TDESKTOP_API_ID=17349 -D TDESKTOP_API_HASH=344583e45741c457fe1862106095a5eb -D CMAKE_CONFIGURATION_TYPES=Release -D DESKTOP_APP_DISABLE_AUTOUPDATE=ON -D DESKTOP_APP_DISABLE_CRASH_REPORTS=ON
 set "RC=%ERRORLEVEL%"
 popd
 exit /b %RC%
