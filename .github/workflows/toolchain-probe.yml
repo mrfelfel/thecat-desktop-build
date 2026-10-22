@@ -1,0 +1,62 @@
+name: Toolchain probe
+
+# Temporary diagnostic: report which MSVC toolsets and ATL trees the Windows
+# image actually has, and which one -T v143 resolves to. Cheap (minutes) and
+# safe to delete once the TheCat Windows workflow is green.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    name: MSVC probe
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolsets on the image.
+        shell: pwsh
+        run: |
+          $vc = "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC"
+          "== VC\Tools\MSVC =="
+          Get-ChildItem (Join-Path $vc "Tools\MSVC") -Directory | Select-Object -Expand Name
+          "== VC\atlmfc (default toolset) =="
+          if (Test-Path (Join-Path $vc "atlmfc\include")) { "present" } else { "MISSING" }
+          "== vswhere installations =="
+          & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -all -property installationPath
+
+      - name: Pinned toolset environment.
+        uses: Eden-CI/msvc-dev-cmd@master
+        with:
+          arch: x64
+          toolset: '14.44'
+
+      - name: Which compiler is on PATH.
+        shell: pwsh
+        run: |
+          "VCToolsVersion = $env:VCToolsVersion"
+          "VCToolsInstallDir = $env:VCToolsInstallDir"
+          where.exe cl
+
+      - name: What does -T v143 configure to.
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force probe | Out-Null
+          Set-Location probe
+          "int main() { return 0; }" | Out-File -Encoding ascii main.cpp
+          "cmake_minimum_required(VERSION 3.20)`nproject(probe CXX)`nadd_executable(probe main.cpp)" |
+            Out-File -Encoding ascii CMakeLists.txt
+          cmake -B build -A x64 -T v143 . 2>&1 | Select-String -Pattern "toolset|Toolset|Selecting" -SimpleMatch
+          if (Test-Path build\probe.vcxproj) {
+            Select-String -Path build\probe.vcxproj -Pattern PlatformToolset
+          }
+          cmake --build build --config Release 2>&1 | Select-Object -Last 5
+
+      - name: ATL availability per toolset.
+        shell: pwsh
+        run: |
+          $vc = "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC"
+          Get-ChildItem (Join-Path $vc "Tools\MSVC") -Directory | ForEach-Object {
+            $atl = Join-Path $_.FullName "atlmfc"
+            "$($_.Name): atlmfc=$(Test-Path $atl) atls.lib=$(Test-Path (Join-Path $atl 'lib\x64\atls.lib'))"
+          }
