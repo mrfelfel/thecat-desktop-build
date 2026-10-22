@@ -33,26 +33,26 @@ jobs:
       - name: Clone.
         uses: actions/checkout@v4
 
-      - name: Add ATL headers to the pinned toolset.
+      - name: Add ATL to the pinned toolset.
         shell: pwsh
         # prepare.py builds breakpad's dump_syms with msbuild /WX, which needs
-        # atlbase.h and atlcomcli.h. The image installs ATL only for its
-        # default toolset, so a pinned 14.44 config has no VC\atlmfc\include
-        # and the build fails with C1083. The ATL headers are
-        # toolset-independent, so provide them on the 14.44 tree.
+        # atlbase.h/atlcomcli.h (C1083) and atls.lib (LNK1104). The image
+        # installs ATL only for its default toolset, so the pinned 14.44 tree
+        # has no VC\atlmfc. Copy the ATL headers and libraries onto it.
         run: |
           $vs = "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC"
-          $target = Join-Path $vs "Tools\MSVC\14.44.35207\atlmfc\include"
-          $source = Join-Path $vs "atlmfc\include"
-          if (Test-Path $target) { exit 0 }
+          $target = Join-Path $vs "Tools\MSVC\14.44.35207\atlmfc"
+          if (Test-Path (Join-Path $target "lib")) { "ATL already present"; exit 0 }
+          $source = Join-Path $vs "atlmfc"
           if (-not (Test-Path $source)) {
             $source = (Get-ChildItem (Join-Path $vs "Tools\MSVC") -Directory |
-              ForEach-Object { Join-Path $_.FullName "atlmfc\include" } |
+              ForEach-Object { Join-Path $_.FullName "atlmfc" } |
               Where-Object { Test-Path $_ } | Select-Object -First 1)
           }
-          if (-not $source) { throw "no ATL headers found under $vs" }
-          New-Item -ItemType Directory -Force (Split-Path $target) | Out-Null
-          Copy-Item $source $target -Recurse -Force
+          if (-not $source) { throw "no ATL directory found under $vs" }
+          New-Item -ItemType Directory -Force $target | Out-Null
+          Copy-Item (Join-Path $source "include") $target -Recurse -Force
+          Copy-Item (Join-Path $source "lib") $target -Recurse -Force
           "ATL: $source -> $target"
 
       - name: Native tools environment.
