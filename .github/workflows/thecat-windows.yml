@@ -46,23 +46,23 @@ jobs:
         run: |
           $vc = "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC"
           $root = Join-Path $vc "atlmfc"
-          if (Test-Path (Join-Path $root "include\atlbase.h")) {
+          if (-not (Test-Path (Join-Path $root "include\atlbase.h"))) {
+            # Newest toolset that actually ships ATL.
+            $source = Get-ChildItem (Join-Path $vc "Tools\MSVC") -Directory |
+              ForEach-Object {
+                $atl = Join-Path $_.FullName "atlmfc"
+                if (Test-Path (Join-Path $atl "include\atlbase.h")) {
+                  [pscustomobject]@{ Path = $atl; Version = $_.Name }
+                }
+              } |
+              Sort-Object Version |
+              Select-Object -Last 1
+            if (-not $source) { throw "no toolset under $vc\Tools\MSVC ships ATL" }
+            New-Item -ItemType Junction -Path $root -Target $source.Path -Force | Out-Null
+            "ATL ($($source.Version)): $root -> $($source.Path)"
+          } else {
             "ATL already present at $root"
-            exit 0
           }
-          # Newest toolset that actually ships ATL.
-          $source = Get-ChildItem (Join-Path $vc "Tools\MSVC") -Directory |
-            ForEach-Object {
-              $atl = Join-Path $_.FullName "atlmfc"
-              if (Test-Path (Join-Path $atl "include\atlbase.h")) {
-                [pscustomobject]@{ Path = $atl; Version = $_.Name }
-              }
-            } |
-            Sort-Object Version |
-            Select-Object -Last 1
-          if (-not $source) { throw "no toolset under $vc\Tools\MSVC ships ATL" }
-          New-Item -ItemType Junction -Path $root -Target $source.Path -Force | Out-Null
-          "ATL ($($source.Version)): $root -> $($source.Path)"
           "atlbase.h: $(Test-Path (Join-Path $root 'include\atlbase.h'))"
           "atls.lib : $(Test-Path (Join-Path $root 'lib\x64\atls.lib'))"
 
@@ -73,6 +73,20 @@ jobs:
         # No toolset pin: run_cmake.py passes -T v143, which MSBuild resolves
         # to the newest installed toolset. Pinning an older one left the build
         # on a compiler whose ATL does not exist on the image.
+
+      - name: Put ATL on LIB.
+        shell: pwsh
+        # breakpad's dump_syms project lists only the Win7 SDK and the DIA SDK
+        # in LIBPATH, so the linker cannot find atls.lib (LNK1104) even though
+        # the header is now reachable through the junction above.
+        # This must come after msvc-dev-cmd, which rewrites LIB wholesale.
+        run: |
+          $atlLib = "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\atlmfc\lib\x64"
+          if (-not (Test-Path (Join-Path $atlLib "atls.lib"))) {
+            throw "no atls.lib under $atlLib"
+          }
+          "LIB=$atlLib;$env:LIB" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "Added $atlLib to LIB"
 
       - name: ThirdParty cache.
         id: cache-third-party

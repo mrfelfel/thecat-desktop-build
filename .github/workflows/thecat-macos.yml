@@ -113,6 +113,7 @@ jobs:
           ./configure.sh \
             -D CMAKE_CONFIGURATION_TYPES=Release \
             -D CMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO \
+            -D CMAKE_XCODE_ATTRIBUTE_DEBUG_INFORMATION_FORMAT=dwarf \
             -D TDESKTOP_API_ID=17349 \
             -D TDESKTOP_API_HASH=344583e45741c457fe1862106095a5eb \
             -D DESKTOP_APP_DISABLE_AUTOUPDATE=ON \
@@ -129,6 +130,26 @@ jobs:
             exit 1
           fi
           echo "Packing $APP"
+
+          # The Release build keeps a full symtab (2.2M symbols here, most of
+          # the binary's 1.8 GB). Strip it and re-sign ad-hoc, or macOS
+          # refuses the bundle outright and the download is unusable.
+          BIN="$APP/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")"
+          echo "Before strip: $(du -h "$BIN" | cut -f1)"
+          strip -x -S "$BIN" || true
+          echo "After strip:  $(du -h "$BIN" | cut -f1)"
+
+          # Nested frameworks must carry their own signature before the
+          # bundle is signed; --deep alone reuses theirs and then fails
+          # verification because they were ad-hoc-signed at build time.
+          find "$APP/Contents/Frameworks" -type f -name '*.dylib' -print0 2>/dev/null |
+            while IFS= read -r -d '' lib; do
+              codesign --force --sign - "$lib"
+            done
+          codesign --force --sign - "$BIN"
+          codesign --force --sign - "$APP"
+          codesign --verify --deep --strict "$APP"
+          echo "Signed ad-hoc and verified"
           # ditto preserves the executable bit and bundle layout.
           mkdir -p artifact
           ditto -c -k --sequesterRsrc --keepParent "$APP" artifact/TheCat-macos-arm64.zip
