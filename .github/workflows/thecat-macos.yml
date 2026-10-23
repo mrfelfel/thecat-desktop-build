@@ -55,7 +55,10 @@ jobs:
           restore-keys: ${{ runner.os }}-thecat-libs-
 
       - name: Patch and brand.
+        # Pillow is needed even on macOS: brand_thecat.py builds the Dock icon
+        # and the menu-bar silhouette, which sips cannot do.
         run: |
+          python3 -m pip install --quiet pillow
           python3 patch_thecat_endpoint.py
           python3 brand_thecat.py
 
