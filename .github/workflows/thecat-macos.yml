@@ -60,23 +60,40 @@ jobs:
           python3 brand_thecat.py
 
       - name: Prepare libraries.
-        # No skip-release: it makes Qt configure with -debug only, while the app
-        # below builds --config Release. The same omission on Windows is what
-        # produced missing Release libraries (LNK1181).
+        # No skip-release. On mac "release:" lines are host-agnostic and are
+        # where the Release half comes from (tg_owt's Release.x86_64 and
+        # Release.arm64, tde2e's out/Release, openssl3's lipo). skip-release
+        # leaves those stages Debug-only and the app links Release.
         run: ./tdesktop/Telegram/build/prepare/mac.sh silent
+
+      - name: Check linked libraries.
+        # The Xcode project links these straight out of Libraries/, not from
+        # the installed prefix. Fail here with the offending path instead of
+        # 2.5 hours later inside a clang++ link line.
+        run: |
+          for f in Libraries/rnnoise/out/Release/librnnoise.a \
+                   Libraries/tg_owt/out/Release/libtg_owt.a \
+                   Libraries/tde2e/out/Release/tde2e/libtde2e.a \
+                   Libraries/tde2e/out/Release/tdutils/libtdutils.a \
+                   Libraries/local/Qt-6.11.2/lib/libQt6Core.a \
+                   Libraries/local/src/wallet_engine/wallet_engine.cpp; do
+            test -f "$f" || { echo "::error::missing $f"; exit 1; }
+          done
 
       - name: Free up disk space.
         # prepare.py writes Libraries/ and ThirdParty/ beside the checkout
         # (repo root), not inside tdesktop/.
         # Remove only scratch data that nothing links against later: git
-        # metadata, package-manager caches and per-stage build trees. Nothing
-        # under Libraries/local/ is touched — that is the installed prefix the
-        # app and Qt's exported CMake targets reference, including static
-        # archives and the generated wallet_engine.cpp.
+        # metadata, rustup, package-manager caches. Never 'out' — the app links
+        # static archives such as Libraries/rnnoise/out/Release/librnnoise.a
+        # and Libraries/tg_owt/out/Release/libtg_owt.a straight from there.
+        # Nothing under Libraries/local/ is touched either: that is the
+        # installed prefix the app and Qt's exported CMake targets reference,
+        # including the generated wallet_engine.cpp.
         run: |
           find Libraries ThirdParty -type d \
-            \( -name '.git' -o -name 'out' -o -name 'target' \
-               -o -name '.cargo' -o -name 'rustup' \) \
+            \( -name '.git' -o -name 'target' -o -name '.cargo' \
+               -o -name 'rustup' \) \
             -prune -exec rm -rf {} + 2>/dev/null || true
           find ThirdParty -maxdepth 3 -type d \( -name 'tmp' -o -name 'cache' \) \
             -prune -exec rm -rf {} + 2>/dev/null || true
