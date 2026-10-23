@@ -57,10 +57,14 @@ jobs:
       - name: Patch and brand.
         # Pillow is needed even on macOS: brand_thecat.py builds the Dock icon
         # and the menu-bar silhouette, which sips cannot do.
+        # Homebrew's python is externally managed (PEP 668), so this goes into
+        # a venv that the rest of the job keeps on PATH.
         run: |
-          python3 -m pip install --quiet pillow
-          python3 patch_thecat_endpoint.py
-          python3 brand_thecat.py
+          python3 -m venv "$RUNNER_TEMP/brand-venv"
+          echo "$RUNNER_TEMP/brand-venv/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/brand-venv/bin/python" -m pip install --quiet pillow
+          "$RUNNER_TEMP/brand-venv/bin/python" patch_thecat_endpoint.py
+          "$RUNNER_TEMP/brand-venv/bin/python" brand_thecat.py
 
       - name: Prepare libraries.
         # No skip-release. On mac "release:" lines are host-agnostic and are
