@@ -123,6 +123,9 @@ jobs:
           if ($text -match 'UseOfAtl') {
             "common.gypi already sets UseOfAtl"
           } else {
+            # git checks breakpad out with CRLF on Windows; strip it or no
+            # line compares equal to a literal from this script.
+            $text = $text -replace "`r`n", "`n"
             $lines = [System.Collections.Generic.List[string]]($text -split "`n")
             $done = $false
             for ($i = 0; $i -lt $lines.Count; $i++) {
