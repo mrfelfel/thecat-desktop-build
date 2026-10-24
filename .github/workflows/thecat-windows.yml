@@ -87,73 +87,68 @@ jobs:
         uses: actions/cache@v5
         with:
           path: Libraries
-          # v2: the Make-breakpad-link-ATL step edits Libraries/patches/,
-          # so cached libraries built before it must not be reused.
-          key: ${{ runner.os }}-thecat-libs-v2-${{ hashFiles('tdesktop/Telegram/build/prepare/prepare.py') }}
-          restore-keys: ${{ runner.os }}-thecat-libs-v2-
-
-      - name: Make breakpad link ATL.
-        # dump_syms links atls.lib, but gyp emits an explicit /LIBPATH list
-        # (Win7 SDK and DIA SDK only) that overrides LIB, so exporting LIB
-        # is not enough. UseOfAtl makes MSBuild contribute the ATL directories
-        # itself.
-        #
-        # The diff lives under Libraries/, which is gitignored and restored
-        # from cache, so it can only be adjusted here, before prepare.py
-        # applies it. Hand-editing a hunk's line counts corrupts the diff, so
-        # the hunk is regenerated: apply the patch, edit common.gypi, diff it.
-        shell: pwsh
-        run: |
-          $patch = "Libraries\patches\breakpad.diff"
-          if (-not (Test-Path $patch)) {
-            throw "$patch not found; does prepare.py still ship it?"
-          }
-          if ((Get-Content $patch -Raw) -match 'UseOfAtl') {
-            "breakpad.diff already sets UseOfAtl"
-            exit 0
-          }
-
-          $tmp = Join-Path $env:RUNNER_TEMP "bpgen"
-          Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Force $tmp | Out-Null
-
-          git clone -q https://chromium.googlesource.com/breakpad/breakpad "$tmp/bp"
-          if ($LASTEXITCODE -ne 0) { throw "breakpad clone failed" }
-          Push-Location "$tmp/bp"
-          git checkout -q dfcb7b6799
-          git apply $patch
-          if ($LASTEXITCODE -ne 0) { throw "shipped breakpad.diff does not apply; fix it instead" }
-          git -c user.email=ci@local -c user.name=ci commit -qam baseline
-          Pop-Location
-
-          $gypi = Join-Path $tmp "bp/src/build/common.gypi"
-          $lines = [System.Collections.Generic.List[string]](Get-Content $gypi)
-          $done = $false
-          for ($i = 0; $i -lt $lines.Count; $i++) {
-            if (-not $done -and $lines[$i] -eq "            ]," -and $i -ge 2 `
-                -and $lines[$i-1] -eq "              'delayimp.lib'," `
-                -and $lines[$i-2] -eq "            'AdditionalDependencies': [") {
-              # Inside VCLinkerTool, right after the array closes.
-              $lines.Insert($i + 1, "            'UseOfAtl': 'Static',")
-              $done = $true
-              break
-            }
-          }
-          if (-not $done) { throw "could not find AdditionalDependencies to extend" }
-          # -NoNewline plus an explicit LF join: Set-Content alone would write
-          # CRLF and the regenerated diff would no longer match the file.
-          [IO.File]::WriteAllText($gypi, ($lines -join "`n") + "`n")
-
-          Push-Location "$tmp/bp"
-          $hunk = git diff -- src/build/common.gypi
-          Pop-Location
-
-          Add-Content $patch -Value $hunk
-          "Appended a common.gypi hunk setting UseOfAtl=Static"
+          key: ${{ runner.os }}-thecat-libs-${{ hashFiles('tdesktop/Telegram/build/prepare/prepare.py') }}
+          restore-keys: ${{ runner.os }}-thecat-libs-
 
       - name: Patch, brand and prepare.
         shell: cmd
+        continue-on-error: true
+        id: prepare
         run: call deploy\prepare-win.bat
+
+      - name: Make breakpad link ATL.
+        # breakpad's dump_syms links atls.lib, but gyp emits an explicit
+        # /LIBPATH list (Win7 SDK and DIA SDK only) that overrides LIB, so
+        # exporting LIB does nothing. UseOfAtl makes MSBuild contribute the
+        # ATL directories itself.
+        #
+        # This has to run after prepare: patches/ is itself a prepare stage,
+        # cloned from desktop-app/patches, and breakpad is only checked out
+        # there too. So the patch is applied to the checkout afterwards and
+        # prepare is re-run, which resumes at the failed breakpad stage.
+        shell: pwsh
+        run: |
+          $bp = "Libraries\win64\breakpad"
+          $gypi = Join-Path $bp "src/build/common.gypi"
+          if (-not (Test-Path $gypi)) {
+            if ("${{ steps.prepare.outcome }}" -eq "success") {
+              "prepare succeeded without breakpad; nothing to patch"
+              exit 0
+            }
+            throw "$gypi not found and prepare failed; see its log"
+          }
+          $text = [IO.File]::ReadAllText($gypi)
+          if ($text -match 'UseOfAtl') {
+            "common.gypi already sets UseOfAtl"
+          } else {
+            $lines = [System.Collections.Generic.List[string]]($text -split "`n")
+            $done = $false
+            for ($i = 0; $i -lt $lines.Count; $i++) {
+              if (-not $done -and $lines[$i] -eq "            ]," -and $i -ge 2 `
+                  -and $lines[$i-1] -eq "              'delayimp.lib'," `
+                  -and $lines[$i-2] -eq "            'AdditionalDependencies': [") {
+                # Inside VCLinkerTool, right after the array closes.
+                $lines.Insert($i + 1, "            'UseOfAtl': 'Static',")
+                $done = $true
+                break
+              }
+            }
+            if (-not $done) {
+              throw "could not find AdditionalDependencies in $gypi"
+            }
+            [IO.File]::WriteAllText($gypi, ($lines -join "`n"))
+            "common.gypi now sets UseOfAtl=Static"
+          }
+
+          # breakpad keeps its build state outside the source tree, so a rerun
+          # resumes there instead of rebuilding the 26 stages before it.
+          if ("${{ steps.prepare.outcome }}" -ne "success") {
+            Write-Output "::group::prepare (rerun)"
+            cmd /c "call deploy\prepare-win.bat"
+            $rc = $LASTEXITCODE
+            Write-Output "::endgroup::"
+            if ($rc -ne 0) { throw "prepare failed again (exit $rc)" }
+          }
 
       - name: Build TheCat.
         shell: cmd
