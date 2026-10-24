@@ -93,67 +93,39 @@ jobs:
           restore-keys: ${{ runner.os }}-thecat-libs-
 
       - name: Patch, brand and prepare.
+        # breakpad's dump_syms cannot link atls.lib on this image: gyp writes
+        # an explicit /LIBPATH list (Win7 SDK and DIA SDK only) that overrides
+        # LIB. Rather than patch gyp — which runs inside this step — let the
+        # stage fail, then put atls.lib where that list already looks and run
+        # prepare again. Everything before breakpad is cached by then, so the
+        # rerun resumes at the failed stage.
         shell: cmd
         continue-on-error: true
         id: prepare
         run: call deploy\prepare-win.bat
 
-      - name: Make breakpad link ATL.
-        # breakpad's dump_syms links atls.lib, but gyp emits an explicit
-        # /LIBPATH list (Win7 SDK and DIA SDK only) that overrides LIB, so
-        # exporting LIB does nothing. UseOfAtl makes MSBuild contribute the
-        # ATL directories itself.
-        #
-        # This has to run after prepare: patches/ is itself a prepare stage,
-        # cloned from desktop-app/patches, and breakpad is only checked out
-        # there too. So the patch is applied to the checkout afterwards and
-        # prepare is re-run, which resumes at the failed breakpad stage.
+      - name: Provide atls.lib to breakpad.
+        if: steps.prepare.outcome != 'success'
         shell: pwsh
         run: |
-          $bp = "Libraries\win64\breakpad"
-          $gypi = Join-Path $bp "src/build/common.gypi"
-          if (-not (Test-Path $gypi)) {
-            if ("${{ steps.prepare.outcome }}" -eq "success") {
-              "prepare succeeded without breakpad; nothing to patch"
-              exit 0
-            }
-            throw "$gypi not found and prepare failed; see its log"
+          $sdk = "Libraries\win64\breakpad\src\third_party\platformsdk_win7\files\Lib\x64"
+          if (-not (Test-Path (Split-Path $sdk))) {
+            throw "breakpad was not checked out; see the prepare log"
           }
-          $text = [IO.File]::ReadAllText($gypi)
-          if ($text -match 'UseOfAtl') {
-            "common.gypi already sets UseOfAtl"
-          } else {
-            # git checks breakpad out with CRLF on Windows; strip it or no
-            # line compares equal to a literal from this script.
-            $text = $text -replace "`r`n", "`n"
-            $lines = [System.Collections.Generic.List[string]]($text -split "`n")
-            $done = $false
-            for ($i = 0; $i -lt $lines.Count; $i++) {
-              if (-not $done -and $lines[$i] -eq "            ]," -and $i -ge 2 `
-                  -and $lines[$i-1] -eq "              'delayimp.lib'," `
-                  -and $lines[$i-2] -eq "            'AdditionalDependencies': [") {
-                # Inside VCLinkerTool, right after the array closes.
-                $lines.Insert($i + 1, "            'UseOfAtl': 'Static',")
-                $done = $true
-                break
-              }
-            }
-            if (-not $done) {
-              throw "could not find AdditionalDependencies in $gypi"
-            }
-            [IO.File]::WriteAllText($gypi, ($lines -join "`n"))
-            "common.gypi now sets UseOfAtl=Static"
+          $atl = "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\atlmfc\lib\x64"
+          if (-not (Test-Path (Join-Path $atl "atls.lib"))) {
+            throw "no atls.lib under $atl"
           }
+          New-Item -ItemType Directory -Force $sdk | Out-Null
+          Copy-Item (Join-Path $atl "atls.lib") $sdk -Force
+          Copy-Item (Join-Path $atl "atlthunk.lib") $sdk -Force -ErrorAction SilentlyContinue
+          "Copied atls.lib into $sdk"
 
-          # breakpad keeps its build state outside the source tree, so a rerun
-          # resumes there instead of rebuilding the 26 stages before it.
-          if ("${{ steps.prepare.outcome }}" -ne "success") {
-            Write-Output "::group::prepare (rerun)"
-            cmd /c "call deploy\prepare-win.bat"
-            $rc = $LASTEXITCODE
-            Write-Output "::endgroup::"
-            if ($rc -ne 0) { throw "prepare failed again (exit $rc)" }
-          }
+          Write-Output "::group::prepare (rerun)"
+          cmd /c "call deploy\prepare-win.bat"
+          $rc = $LASTEXITCODE
+          Write-Output "::endgroup::"
+          if ($rc -ne 0) { throw "prepare failed again (exit $rc)" }
 
       - name: Build TheCat.
         shell: cmd

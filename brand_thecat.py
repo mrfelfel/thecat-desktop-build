@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import pathlib
+import re
 import shutil
 import sys
 
@@ -385,38 +386,88 @@ def rewrite_links(src: pathlib.Path) -> None:
 def rebrand_strings(src: pathlib.Path) -> None:
     """Replace the brand name everywhere the running app reads it.
 
-    Three places hold user-visible strings, and each was missed by an earlier
-    version of this pass:
+    Three places hold user-visible strings:
 
-    - Resources/langs: the language packs.
-    - SourceFiles: strings compiled straight into the binary — the app name in
-      version.h, crash window text, the tray title, the updater's folder name.
-    - Resources/winrc: the Windows version resource, which is what the Start
-      menu, the taskbar tooltip and the file Properties dialog show.
+    - Resources/langs and Resources/winrc: language packs and the Windows
+      version resource. Every line is data, so the whole file is rewritten.
+    - SourceFiles: strings compiled into the binary — the app name in
+      version.h, crash window text, the tray tooltip, the updater's folder.
+      Only the contents of string literals are touched here. A blind replace
+      also hits identifiers: rewriting "Fragment" turned
+      `struct FragmentCollection` into `struct Kat MarketCollection`, which
+      does not compile.
 
     Comments and the LEGAL headers are skipped, which the GPL and the
     "based on Telegram Desktop" notice both require.
     """
-    roots = (
+    data_roots = (
         src / "Telegram/Resources/langs",
-        src / "Telegram/SourceFiles",
         src / "Telegram/Resources/winrc",
     )
-    for root in roots:
+    code_root = src / "Telegram/SourceFiles"
+    for root in (*data_roots, code_root):
         if not root.is_dir():
             die(f"missing {root}")
 
     changed = 0
-    for root in roots:
+    pairs = WORD_PAIRS + BARE_BRAND_PAIRS
+    for root in data_roots:
         for path in sorted(root.rglob("*")):
             if not path.is_file():
                 continue
             if path.suffix.lower() not in TEXT_EXTS and path.suffix != ".rc":
                 continue
-            if rewrite_file(path, WORD_PAIRS + BARE_BRAND_PAIRS):
+            if rewrite_file(path, pairs):
                 changed += 1
                 print(f"  brand → {path.relative_to(src)}")
+
+    for path in sorted(code_root.rglob("*")):
+        if not path.is_file() or path.suffix.lower() not in CODE_EXTS:
+            continue
+        if rewrite_literals(path, pairs):
+            changed += 1
+            print(f"  brand → {path.relative_to(src)}")
     print(f"  rebranded string files: {changed}")
+
+
+CODE_EXTS = {".cpp", ".h", ".mm", ".m"}
+
+
+def rewrite_literals(path: pathlib.Path, pairs) -> bool:
+    """Apply brand replacements inside C++ string literals only."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (UnicodeDecodeError, OSError):
+        return False
+    head, body = split_legal_header(text)
+    new = replace_in_literals(body, pairs)
+    if new == body:
+        return False
+    path.write_text(head + new, encoding="utf-8")
+    return True
+
+
+# A string literal is a double-quoted run, optionally preceded by the u/L/R
+# prefix and any of the Qt "_q"/"_cs" style suffixes. Line continuations and
+# escaped quotes inside it must not end it early.
+_LITERAL_RE = re.compile(r'"(?:[^"\\\n]|\\.)*"', re.DOTALL)
+
+
+def replace_in_literals(text: str, pairs) -> str:
+    """Run the brand replacements over the inside of every string literal.
+
+    A literal is skipped when a pair's source appears in the identifier that
+    touches it, so `u"Fragment"_q` is branded but a bare `Fragment` symbol is
+    left alone.
+    """
+    def brand(match):
+        literal = match.group(0)
+        inner = literal[1:-1]
+        for a, b in pairs:
+            inner = inner.replace(a, b)
+        return '"' + inner + '"'
+
+    return _LITERAL_RE.sub(brand, text)
 
 
 def rebrand_identity(src: pathlib.Path) -> None:
