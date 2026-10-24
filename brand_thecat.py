@@ -314,6 +314,8 @@ WORD_PAIRS = [
     ("Telegram Passport", "TheCat Passport"),
     ("Telegram Business", "TheCat Business"),
     ("Telegram and Fragment", "TheCat and Kat Market"),
+    # Windows version resource: shown in Start menu, taskbar and Properties.
+    ("Telegram FZ-LLC", "Catroom"),
 ]
 
 # bare brand word, applied to lang.strings last so compounds above win.
@@ -381,23 +383,39 @@ def rewrite_links(src: pathlib.Path) -> None:
 
 
 def rebrand_strings(src: pathlib.Path) -> None:
-    """Replace the brand name in every user-visible string.
+    """Replace the brand name everywhere the running app reads it.
 
-    Only Resources/langs is touched: those are the language packs the running
-    app displays. Source comments and the LEGAL headers keep their upstream
-    text, which the GPL and the "based on Telegram Desktop" notice both
-    require.
+    Three places hold user-visible strings, and each was missed by an earlier
+    version of this pass:
+
+    - Resources/langs: the language packs.
+    - SourceFiles: strings compiled straight into the binary — the app name in
+      version.h, crash window text, the tray title, the updater's folder name.
+    - Resources/winrc: the Windows version resource, which is what the Start
+      menu, the taskbar tooltip and the file Properties dialog show.
+
+    Comments and the LEGAL headers are skipped, which the GPL and the
+    "based on Telegram Desktop" notice both require.
     """
-    langs = src / "Telegram/Resources/langs"
-    if not langs.is_dir():
-        die(f"missing {langs}")
+    roots = (
+        src / "Telegram/Resources/langs",
+        src / "Telegram/SourceFiles",
+        src / "Telegram/Resources/winrc",
+    )
+    for root in roots:
+        if not root.is_dir():
+            die(f"missing {root}")
+
     changed = 0
-    for path in sorted(langs.rglob("*")):
-        if not path.is_file() or path.suffix.lower() not in TEXT_EXTS:
-            continue
-        if rewrite_file(path, WORD_PAIRS + BARE_BRAND_PAIRS):
-            changed += 1
-            print(f"  brand → {path.relative_to(src)}")
+    for root in roots:
+        for path in sorted(root.rglob("*")):
+            if not path.is_file():
+                continue
+            if path.suffix.lower() not in TEXT_EXTS and path.suffix != ".rc":
+                continue
+            if rewrite_file(path, WORD_PAIRS + BARE_BRAND_PAIRS):
+                changed += 1
+                print(f"  brand → {path.relative_to(src)}")
     print(f"  rebranded string files: {changed}")
 
 
@@ -420,9 +438,12 @@ def rebrand_identity(src: pathlib.Path) -> None:
         'constexpr auto AppId = "{53F49750-6209-4FBF-9CA8-7A333C87D1ED}"_cs;',
         'constexpr auto AppId = "{9B0C4E31-7F4A-4C63-9DD2-51AB6E0F8C27}"_cs;',
     )
-    if new == text:
-        die("version.h identity replacements did not match")
-    version_h.write_text(new, encoding="utf-8")
+    # AppName may already read "TheCat": rebrand_strings runs first and the
+    # brand pass covers version.h too. Only the AppId still needs checking.
+    if new != text:
+        version_h.write_text(new, encoding="utf-8")
+    elif 'constexpr auto AppId = "{9B0C4E31-' not in text:
+        die("version.h AppId replacement did not match")
 
     config_h = src / "Telegram/SourceFiles/config.h"
     text = config_h.read_text(encoding="utf-8")

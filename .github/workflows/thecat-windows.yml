@@ -24,6 +24,8 @@ jobs:
   windows:
     name: TheCat Windows x64
     runs-on: windows-latest
+    permissions:
+      contents: write
 
     env:
       TDESKTOP_SRC: ${{ github.workspace }}\tdesktop
@@ -174,3 +176,14 @@ jobs:
           name: TheCat-windows-x64
           path: artifact\
           retention-days: 14
+
+      - name: Publish release.
+        shell: cmd
+        # Shares the tag with the macOS job: both upload into the same release
+        # so a download page only has to point at one place.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view thecat-latest >NUL 2>&1 || gh release create thecat-latest --title "TheCat latest" --notes "Automatic build of main (${{ github.sha }})."
+          gh release upload thecat-latest artifact\TheCat.exe --clobber

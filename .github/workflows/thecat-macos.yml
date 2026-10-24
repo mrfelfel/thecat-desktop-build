@@ -24,6 +24,8 @@ jobs:
   macos:
     name: TheCat macOS arm64
     runs-on: macos-latest
+    permissions:
+      contents: write
 
     env:
       TDESKTOP_SRC: ${{ github.workspace }}/tdesktop
@@ -160,3 +162,18 @@ jobs:
           name: TheCat-macos-arm64
           path: tdesktop/out/Release/artifact/
           retention-days: 14
+
+      - name: Publish release.
+        # A rolling tag rather than a new one per build: the app is built from
+        # main, so each successful build replaces the asset users download.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=thecat-latest
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" \
+            --title "TheCat latest" \
+            --notes "Automatic build of main (${{ github.sha }})."
+          gh release upload "$TAG" \
+            tdesktop/out/Release/artifact/TheCat-macos-arm64.zip \
+            --clobber
