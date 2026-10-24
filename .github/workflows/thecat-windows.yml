@@ -93,46 +93,8 @@ jobs:
           restore-keys: ${{ runner.os }}-thecat-libs-
 
       - name: Patch, brand and prepare.
-        # breakpad's dump_syms cannot link atls.lib on this image: gyp writes
-        # an explicit /LIBPATH list (Win7 SDK and DIA SDK only) that overrides
-        # LIB. Rather than patch gyp — which runs inside this step — let the
-        # stage fail, then put atls.lib where that list already looks and run
-        # prepare again. Everything before breakpad is cached by then, so the
-        # rerun resumes at the failed stage.
         shell: cmd
-        continue-on-error: true
-        id: prepare
         run: call deploy\prepare-win.bat
-
-      - name: Provide atls.lib to breakpad.
-        if: steps.prepare.outcome != 'success'
-        shell: pwsh
-        run: |
-          # The link line asks for /LIBPATH:../../../third_party/... relative
-          # to the project directory. That directory is not part of a
-          # breakpad checkout and gyp never creates it, so make it here and
-          # drop atls.lib in — the linker then finds it without any gyp edit.
-          $bp = "Libraries\win64\breakpad"
-          if (-not (Test-Path "$bp\src\tools\windows\dump_syms")) {
-            throw "breakpad was not checked out; see the prepare log"
-          }
-          $sdk = Resolve-Path "$bp\src" | ForEach-Object {
-            Join-Path $_ "third_party\platformsdk_win7\files\Lib\x64"
-          }
-          $atl = "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\atlmfc\lib\x64"
-          if (-not (Test-Path (Join-Path $atl "atls.lib"))) {
-            throw "no atls.lib under $atl"
-          }
-          New-Item -ItemType Directory -Force $sdk | Out-Null
-          Copy-Item (Join-Path $atl "atls.lib") $sdk -Force
-          Copy-Item (Join-Path $atl "atlthunk.lib") $sdk -Force -ErrorAction SilentlyContinue
-          "Copied atls.lib into $sdk"
-
-          Write-Output "::group::prepare (rerun)"
-          cmd /c "call deploy\prepare-win.bat"
-          $rc = $LASTEXITCODE
-          Write-Output "::endgroup::"
-          if ($rc -ne 0) { throw "prepare failed again (exit $rc)" }
 
       - name: Build TheCat.
         shell: cmd
