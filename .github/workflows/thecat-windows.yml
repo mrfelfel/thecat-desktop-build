@@ -30,6 +30,10 @@ jobs:
     env:
       TDESKTOP_SRC: ${{ github.workspace }}\tdesktop
       BUILD_TYPE: Release
+      TOOLSET: 14.44.35207
+      # run_cmake.py appends this to its -T v143 so MSBuild cannot pick a
+      # second, newer toolset for the app itself.
+      VCTOOLSETVERSION: 14.44.35207
 
     steps:
       - name: Clone.
@@ -72,16 +76,24 @@ jobs:
         uses: Eden-CI/msvc-dev-cmd@master
         with:
           arch: x64
-        # No toolset pin: run_cmake.py passes -T v143, which MSBuild resolves
-        # to the newest installed toolset. Pinning an older one left the build
-        # on a compiler whose ATL does not exist on the image.
+          # Pin the toolset instead of taking the newest on PATH. The image
+          # ships two, and this has to agree with whatever vcvars picks when
+          # prepare compiles the dependencies: MSVC 14.4x headers emit
+          # vectorized std:: helpers (__std_rotate, __std_max_element_4i, ...)
+          # that the 14.5x libraries no longer export, so an object built by
+          # one toolset cannot link against libraries built by the other. A
+          # mismatch only surfaces on a cold build, because restored Libraries
+          # carry whichever toolset built them.
+          toolset: ${{ env.TOOLSET }}
 
       - name: ThirdParty cache.
         id: cache-third-party
         uses: actions/cache@v5
         with:
           path: ThirdParty
-          key: ${{ runner.os }}-thecat-thirdparty-${{ hashFiles('tdesktop/Telegram/build/prepare/prepare.py') }}
+          # Resume from any earlier build's tree. These are build tools, not
+          # compiler-matched objects, so a stale-restore is what we want.
+          key: ${{ runner.os }}-thecat-thirdparty-${{ github.run_id }}
           restore-keys: ${{ runner.os }}-thecat-thirdparty-
 
       - name: Libraries cache.
@@ -89,12 +101,35 @@ jobs:
         uses: actions/cache@v5
         with:
           path: Libraries
-          key: ${{ runner.os }}-thecat-libs-${{ hashFiles('tdesktop/Telegram/build/prepare/prepare.py') }}
-          restore-keys: ${{ runner.os }}-thecat-libs-
+          # Restore only a tree built by the toolset pinned above. The MSVC
+          # 14.4x headers emit vectorized std:: helpers (__std_rotate,
+          # __std_max_element_4i, ...) that 14.5x libraries no longer export,
+          # so a footer object built by one toolset cannot link against
+          # libraries built by the other. The toolset is in the key so that
+          # a mismatch is a cache miss instead of a link error, and the run id
+          # makes each run its own save slot: keys are immutable, so a fixed
+          # key would pin whatever the first run happened to leave behind.
+          key: ${{ runner.os }}-thecat-libs-mt1444-${{ github.run_id }}
+          restore-keys: ${{ runner.os }}-thecat-libs-mt1444-
 
       - name: Patch, brand and prepare.
         shell: cmd
         run: call deploy\prepare-win.bat
+
+      - name: Check the toolset did not move.
+        shell: pwsh
+        # prepare runs its own vcvars. If that resolves a different toolset
+        # than the one pinned above, the libraries it just built and the
+        # objects the build is about to compile disagree about __std_*
+        # symbols, and the failure surfaces much later as an unreadable link
+        # error. Fail here with the two versions instead.
+        run: |
+          $pinned = "${{ env.TOOLSET }}"
+          $cl = (Get-Command cl.exe).Source
+          "cl on PATH: $cl"
+          if ($cl -notlike "*${pinned}*") {
+            throw "cl.exe is not from the pinned toolset $pinned : $cl"
+          }
 
       - name: Build TheCat.
         shell: cmd

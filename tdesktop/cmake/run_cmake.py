@@ -12,6 +12,11 @@ def run(project, arguments, buildType=''):
 
     cmake = ['cmake']
     vsArch = ''
+    # v143 names the toolset family, and MSBuild takes the newest installed
+    # member of it. The dependencies are built by the compiler already on
+    # PATH, so letting the build pick a different one links objects and
+    # libraries that disagree about __std_* helper symbols.
+    toolsetVersion = os.environ.get('VCTOOLSETVERSION', '')
     explicitGenerator = False
     for arg in arguments:
         if arg == 'debug':
@@ -25,12 +30,12 @@ def run(project, arguments, buildType=''):
     if sys.platform == 'win32' and not explicitGenerator:
         if vsArch == 'x64':
             cmake.append('-Ax64')
-            cmake.append('-T v143')
+            cmake.append('-T v143' + (',' + toolsetVersion if toolsetVersion else ''))
         elif vsArch == 'arm':
             cmake.append('-AARM64')
         else:
             cmake.append('-AWin32') # default
-            cmake.append('-T v143')
+            cmake.append('-T v143' + (',' + toolsetVersion if toolsetVersion else ''))
     elif vsArch != '':
         print("[ERROR] x86/x64/arm switch is supported only with Visual Studio.")
         return 1
