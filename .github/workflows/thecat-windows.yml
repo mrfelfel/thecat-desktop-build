@@ -108,9 +108,16 @@ jobs:
         if: steps.prepare.outcome != 'success'
         shell: pwsh
         run: |
-          $sdk = "Libraries\win64\breakpad\src\third_party\platformsdk_win7\files\Lib\x64"
-          if (-not (Test-Path (Split-Path $sdk))) {
+          # The link line asks for /LIBPATH:../../../third_party/... relative
+          # to the project directory. That directory is not part of a
+          # breakpad checkout and gyp never creates it, so make it here and
+          # drop atls.lib in — the linker then finds it without any gyp edit.
+          $bp = "Libraries\win64\breakpad"
+          if (-not (Test-Path "$bp\src\tools\windows\dump_syms")) {
             throw "breakpad was not checked out; see the prepare log"
+          }
+          $sdk = Resolve-Path "$bp\src" | ForEach-Object {
+            Join-Path $_ "third_party\platformsdk_win7\files\Lib\x64"
           }
           $atl = "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\atlmfc\lib\x64"
           if (-not (Test-Path (Join-Path $atl "atls.lib"))) {
