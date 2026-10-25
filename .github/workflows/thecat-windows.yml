@@ -131,6 +131,21 @@ jobs:
             throw "cl.exe is not from the pinned toolset $pinned : $cl"
           }
 
+      - name: Check the MP cap reached the project.
+        shell: pwsh
+        # A -D split across two argv tokens is silently accepted and ignored,
+        # which is how an earlier cap ran for a whole build without applying.
+        # Ask the configured cache rather than trusting the command line.
+        run: |
+          $cache = "tdesktop\out\CMakeCache.txt"
+          if (-not (Test-Path $cache)) { throw "missing $cache" }
+          $line = Select-String -Path $cache -Pattern '^tdesktop_msvc_mp_count:' |
+            Select-Object -First 1
+          "cache: $($line.Line)"
+          if (-not ($line -and $line.Line -match '=2$')) {
+            throw "tdesktop_msvc_mp_count is not 2; the cap did not reach cmake"
+          }
+
       - name: Build TheCat.
         shell: cmd
         # One project at a time. The runner has 4 cores and 16 GB, and the
