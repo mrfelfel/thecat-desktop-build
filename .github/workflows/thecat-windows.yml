@@ -86,34 +86,36 @@ jobs:
           # carry whichever toolset built them.
           toolset: ${{ env.TOOLSET }}
 
-      - name: ThirdParty cache.
-        id: cache-third-party
-        uses: actions/cache@v5
+      - name: Restore prepared Libraries.
+        id: deps
+        uses: actions/download-artifact@v5
         with:
-          path: ThirdParty
-          # Resume from any earlier build's tree. These are build tools, not
-          # compiler-matched objects, so a stale-restore is what we want.
-          key: ${{ runner.os }}-thecat-thirdparty-${{ github.run_id }}
-          restore-keys: ${{ runner.os }}-thecat-thirdparty-
+          name: thecat-windows-deps-mt1444
+          # Produced by thecat-windows-deps.yml. When it is not there (the
+          # first run after a prepare.py change) this step fails softly and
+          # the next one builds the dependencies the slow way.
+          path: .
+        continue-on-error: true
 
-      - name: Libraries cache.
-        id: cache-libs
-        uses: actions/cache@v5
-        with:
-          path: Libraries
-          # Restore only a tree built by the toolset pinned above. The MSVC
-          # 14.4x headers emit vectorized std:: helpers (__std_rotate,
-          # __std_max_element_4i, ...) that 14.5x libraries no longer export,
-          # so a footer object built by one toolset cannot link against
-          # libraries built by the other. The toolset is in the key so that
-          # a mismatch is a cache miss instead of a link error, and the run id
-          # makes each run its own save slot: keys are immutable, so a fixed
-          # key would pin whatever the first run happened to leave behind.
-          key: ${{ runner.os }}-thecat-libs-mt1444-${{ github.run_id }}
-          restore-keys: ${{ runner.os }}-thecat-libs-mt1444-
+      - name: Report which dependencies arrived.
+        shell: pwsh
+        # Silence here is exactly what we want: a warm tree makes prepare a
+        # no-op. Print the shape anyway, so a partial restore is visible in
+        # the log rather than only as 90 minutes of rebuilding.
+        run: |
+          foreach ($d in "Libraries", "ThirdParty") {
+            if (Test-Path $d) {
+              $n = (Get-ChildItem $d -Recurse -File | Measure-Object).Count
+              "$d : $n files"
+            } else {
+              "$d : absent, prepare will build it"
+            }
+          }
 
       - name: Patch, brand and prepare.
         shell: cmd
+        # With the artifact in place, prepare is a no-op: every stage finds a
+        # good cache key and skips. Without it, this is the full 90 minutes.
         run: call deploy\prepare-win.bat
 
       - name: Check the toolset did not move.

@@ -1,0 +1,75 @@
+name: TheCat Windows deps
+
+# Libraries/ is the bulk of a Windows build's wall clock: 35 stages of C and
+# C++ compiled from scratch take about 90 minutes on a 4-core runner. It only
+# changes when prepare.py or the pinned toolset does, so building it here once
+# and handing it to the app build as an artifact takes those 90 minutes out of
+# every ordinary build.
+#
+# actions/cache cannot do this: it only saves on job success, and the app build
+# has been failing for reasons that have nothing to do with Libraries.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tdesktop/Telegram/build/prepare/prepare.py'
+      - '.github/workflows/thecat-windows-deps.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deps:
+    name: Build and publish Libraries
+    runs-on: windows-latest
+    permissions:
+      contents: read
+
+    env:
+      TDESKTOP_SRC: ${{ github.workspace }}\tdesktop
+      TOOLSET: 14.44.35207
+
+    steps:
+      - name: Clone.
+        uses: actions/checkout@v5
+
+      - name: Native tools environment.
+        uses: Eden-CI/msvc-dev-cmd@master
+        with:
+          arch: x64
+          # Must match the app build exactly; see thecat-windows.yml.
+          toolset: ${{ env.TOOLSET }}
+
+      - name: Build dependencies.
+        shell: cmd
+        # win.bat rather than deploy\prepare-win.bat: the latter also brands
+        # and configures, and this job's whole output is Libraries/ and
+        # ThirdParty/. Branding would only add time and a failure mode.
+        run: |
+          pushd "%TDESKTOP_SRC%\Telegram"
+          call build\prepare\win.bat silent
+          popd
+
+      - name: Report what was produced.
+        shell: pwsh
+        run: |
+          foreach ($d in "Libraries", "ThirdParty") {
+            if (-not (Test-Path $d)) { throw "$d is missing after prepare" }
+            $items = (Get-ChildItem $d -Recurse -File | Measure-Object Length -Sum)
+            "{0}: {1} files, {2:N0} MB" -f $d, $items.Count, ($items.Sum / 1MB)
+          }
+
+      - name: Publish Libraries.
+        uses: actions/upload-artifact@v5
+        with:
+          name: thecat-windows-deps-mt1444
+          path: |
+            Libraries
+            ThirdParty
+          # Short retention: this is a build cache, not a release. It is
+          # rebuilt on demand whenever prepare.py changes.
+          retention-days: 7
+          compression-level: 0
