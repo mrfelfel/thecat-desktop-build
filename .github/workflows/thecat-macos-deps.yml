@@ -1,0 +1,66 @@
+name: TheCat macOS deps
+
+# Same idea as thecat-windows-deps.yml: Libraries/ and ThirdParty/ are about
+# two hours of a macOS build and only change when prepare.py does, so build
+# them once and hand them to the app build as an artifact.
+#
+# actions/cache cannot cover this here. It saves only on job success, and the
+# app build's own failures (branding, linking) have nothing to do with these
+# dependencies, so the cache never lands.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tdesktop/Telegram/build/prepare/prepare.py'
+      - '.github/workflows/thecat-macos-deps.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deps:
+    name: Build and publish Libraries
+    runs-on: macos-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Clone.
+        uses: actions/checkout@v5
+
+      - name: Set up homebrew toolchain.
+        run: |
+          sudo chown -R `whoami`:admin /usr/local/share
+          brew update
+          brew upgrade || true
+          brew install automake libtool meson nasm ninja pkg-config
+          sudo mdutil -a -i off
+          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          sudo sed -i '' '/CMAKE_${lang}_FLAGS_DEBUG_INIT/s/ -g//' /opt/homebrew/share/cmake/Modules/Compiler/GNU.cmake
+
+      - name: Prepare libraries.
+        # No skip-release: on mac the "release:" lines are where tg_owt,
+        # tde2e and openssl3 produce the Release halves the app links.
+        run: ./tdesktop/Telegram/build/prepare/mac.sh silent
+
+      - name: Report what was produced.
+        run: |
+          for d in Libraries ThirdParty; do
+            test -d "$d" || { echo "::error::$d missing after prepare"; exit 1; }
+            printf '%s: %s files, %s\n' "$d" \
+              "$(find "$d" -type f | wc -l | tr -d ' ')" \
+              "$(du -sh "$d" | cut -f1)"
+          done
+
+      - name: Publish Libraries.
+        uses: actions/upload-artifact@v5
+        with:
+          name: thecat-macos-deps
+          path: |
+            Libraries
+            ThirdParty
+          retention-days: 7
+          compression-level: 0

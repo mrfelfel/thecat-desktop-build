@@ -68,11 +68,32 @@ jobs:
           "$RUNNER_TEMP/brand-venv/bin/python" patch_thecat_endpoint.py
           "$RUNNER_TEMP/brand-venv/bin/python" brand_thecat.py
 
+      - name: Restore prepared Libraries.
+        id: deps
+        uses: actions/download-artifact@v5
+        with:
+          name: thecat-macos-deps
+          # Produced by thecat-macos-deps.yml. Absent on the first run after a
+          # prepare.py change, in which case the step below rebuilds the tree.
+          path: .
+        continue-on-error: true
+
+      - name: Report which dependencies arrived.
+        run: |
+          for d in Libraries ThirdParty; do
+            if [ -d "$d" ]; then
+              echo "$d: $(find "$d" -type f | wc -l | tr -d ' ') files"
+            else
+              echo "$d: absent, prepare will build it"
+            fi
+          done
+
       - name: Prepare libraries.
-        # No skip-release. On mac "release:" lines are host-agnostic and are
-        # where the Release half comes from (tg_owt's Release.x86_64 and
-        # Release.arm64, tde2e's out/Release, openssl3's lipo). skip-release
-        # leaves those stages Debug-only and the app links Release.
+        # No skip-release. On mac the "release:" lines are where tg_owt's
+        # Release.x86_64 and Release.arm64, tde2e's out/Release and openssl3's
+        # lipo come from; skip-release leaves those Debug-only and the app
+        # links Release. With the artifact restored this is a no-op: every
+        # stage finds a good cache key and skips.
         run: ./tdesktop/Telegram/build/prepare/mac.sh silent
 
       - name: Check linked libraries.
