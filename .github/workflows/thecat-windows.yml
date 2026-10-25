@@ -133,9 +133,15 @@ jobs:
 
       - name: Build TheCat.
         shell: cmd
+        # One project at a time. The runner has 4 cores and 16 GB, and the
+        # app is one huge vcxproj whose own /MP then fills those cores. With
+        # --parallel MSBuild started three project builds beside it and cl.exe
+        # ran out of heap (C1060) about 40 minutes in, on a different file
+        # every run. Single-project removes the oversubscription; the cost is
+        # wall clock, not reachability.
         run: |
           cd /d %TDESKTOP_SRC%
-          cmake --build out --config %BUILD_TYPE% --target Telegram --parallel
+          cmake --build out --config %BUILD_TYPE% --target Telegram -- /m:1
 
       - name: Collect TheCat.exe.
         shell: cmd

@@ -4,6 +4,10 @@
 # For license and copyright information please follow this link:
 # https://github.com/desktop-app/legal/blob/master/LEGAL
 
+# Empty keeps /MP bare, i.e. one job per core, which is upstream's behaviour.
+set(tdesktop_msvc_mp_count "" CACHE STRING
+    "Jobs for cl.exe /MP, empty for all cores")
+
 target_compile_definitions(common_options
 INTERFACE
     WIN32
@@ -31,7 +35,10 @@ if (MSVC)
         # /Qspectre
         /utf-8
         /W4
-        /MP     # Enable multi process build.
+        # /MP with no count takes every core, and several such builds can then
+        # run at once and exhaust the heap. A project can pass /MP<n> itself
+        # to cap it.
+        /MP${tdesktop_msvc_mp_count}
         /EHsc   # Catch C++ exceptions only, extern C functions never throw a C++ exception.
         /w15038 # wrong initialization order
         /w14265 # class has virtual functions, but destructor is not virtual
