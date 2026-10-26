@@ -1,19 +1,6 @@
 name: TheCat Windows
 
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - '**.md'
-      - 'logo.*'
-      - '.github/**'
-      - '!.github/workflows/thecat-windows.yml'
-  pull_request:
-    paths-ignore:
-      - '**.md'
-      - 'logo.*'
-      - '.github/**'
-      - '!.github/workflows/thecat-windows.yml'
   workflow_dispatch:
 
 concurrency:
@@ -91,26 +78,11 @@ jobs:
         uses: actions/download-artifact@v5
         with:
           name: thecat-windows-deps-mt1444
-          # Produced by thecat-windows-deps.yml. When it is not there (the
-          # first run after a prepare.py change) this step fails softly and
-          # the next one builds the dependencies the slow way.
           path: .
+        # A warm tree turns prepare into a no-op; without one this falls
+        # through to the full build. Kept best-effort because the uploaded
+        # tree is large and a partial restore must not fail the job by itself.
         continue-on-error: true
-
-      - name: Report which dependencies arrived.
-        shell: pwsh
-        # Silence here is exactly what we want: a warm tree makes prepare a
-        # no-op. Print the shape anyway, so a partial restore is visible in
-        # the log rather than only as 90 minutes of rebuilding.
-        run: |
-          foreach ($d in "Libraries", "ThirdParty") {
-            if (Test-Path $d) {
-              $n = (Get-ChildItem $d -Recurse -File | Measure-Object).Count
-              "$d : $n files"
-            } else {
-              "$d : absent, prepare will build it"
-            }
-          }
 
       - name: Patch, brand and prepare.
         shell: cmd
@@ -183,7 +155,7 @@ jobs:
         shell: cmd
         # Shares the tag with the macOS job: both upload into the same release
         # so a download page only has to point at one place.
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
