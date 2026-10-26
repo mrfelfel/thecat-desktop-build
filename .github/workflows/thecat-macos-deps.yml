@@ -55,6 +55,21 @@ jobs:
               "$(du -sh "$d" | cut -f1)"
           done
 
+      - name: Trim what a later build never reads.
+        # 30 GB of the tree is mostly per-stage debug symbols and libtool
+        # wrappers. A cold app build reads headers and the installed
+        # .a/.dylib only. Deliberately NOT touched: *.o (some prepare stages
+        # produce nothing but objects the app links, e.g. wallet_engine) and
+        # *.a/*.dylib (they are what links).
+        run: |
+          measure() { du -sm Libraries ThirdParty | awk '{s+=$1} END {print s}'; }
+          before=$(measure)
+          find Libraries ThirdParty \
+            \( -name '*.dSYM' -o -name '*.la' -o -name '*.lo' \) \
+            -prune -exec rm -rf {} + 2>/dev/null || true
+          after=$(measure)
+          echo "trimmed: ${before} MB -> ${after} MB"
+
       - name: Publish Libraries.
         uses: actions/upload-artifact@v5
         with:

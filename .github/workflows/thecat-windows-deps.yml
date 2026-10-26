@@ -61,6 +61,40 @@ jobs:
             $items = (Get-ChildItem $d -Recurse -File | Measure-Object Length -Sum)
             "{0}: {1} files, {2:N0} MB" -f $d, $items.Count, ($items.Sum / 1MB)
           }
+          # Which top-level dependency is actually the heavy one, so the trim
+          # below can be reasoned about instead of guessed at.
+          Get-ChildItem Libraries -Directory |
+            ForEach-Object {
+              $s = (Get-ChildItem $_.FullName -Recurse -File -ErrorAction SilentlyContinue |
+                Measure-Object Length -Sum)
+              [pscustomobject]@{ Name = $_.Name; MB = [math]::Round($s.Sum / 1MB) }
+            } |
+            Sort-Object MB -Descending | Select-Object -First 12 |
+            Format-Table -AutoSize | Out-String -Width 200
+
+      - name: Trim what a later build never reads.
+        shell: pwsh
+        # The tree is 18 GB, mostly object files and program databases left
+        # behind by the 35 prepare stages. A cold build reads headers and the
+        # final .lib/.a/.dll only, so dropping intermediates shrinks the
+        # artifact without changing what compiles or links.
+        run: |
+          # .exp is deliberately absent: it is the import file a DLL's
+          # consumers link against, not an intermediate. .obj is not on the
+          # list either: a restored tree still has to satisfy the build's
+          # dependency checks, and a missing object forces the whole prepare
+          # again.
+          $extensions = @('.pdb', '.ilk', '.iobj', '.ipdb')
+          $measure = {
+            (Get-ChildItem Libraries, ThirdParty -Recurse -File -ErrorAction SilentlyContinue |
+              Measure-Object Length -Sum).Sum / 1MB
+          }
+          $before = & $measure
+          Get-ChildItem Libraries, ThirdParty -Recurse -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Extension -in $extensions } |
+            Remove-Item -Force -ErrorAction SilentlyContinue
+          $after = & $measure
+          "trimmed: {0:N0} MB -> {1:N0} MB" -f $before, $after
 
       - name: Publish Libraries.
         uses: actions/upload-artifact@v5
