@@ -139,16 +139,18 @@ jobs:
       - name: Build TheCat.
         shell: cmd
         # The runner has 4 cores and 16 GB, and a single cl.exe compiling one
-        # of the window/ or wallet/ files already needs most of that: in a
-        # four-hour run 36 of them died with C1060, each a different header.
-        # Running several at once only brings that on faster, so this build is
-        # deliberately serial. The MP cap itself lives in options_win.cmake
-        # (set to 1 by deploy/prepare-win.bat); this only stops cmake and
-        # MSBuild from adding parallelism of their own.
+        # of the window/ or wallet/ files already needs most of that: 24 of
+        # them died with C1060 in one run, and the log shows each one starting
+        # while the previous was still compiling.
+        #
+        # MultiProcessorCompilation=false is the load-bearing flag here, not
+        # the /MP count: MSBuild writes its own /MP from that property after
+        # whatever CMAKE_CXX_FLAGS carried, so the count alone loses. With the
+        # property off there is exactly one cl.exe per compile.
         run: |
           cd /d %TDESKTOP_SRC%
           set CMAKE_BUILD_PARALLEL_LEVEL=1
-          cmake --build out --config %BUILD_TYPE% --target Telegram -- /m:1
+          cmake --build out --config %BUILD_TYPE% --target Telegram -- /m:1 /p:MultiProcessorCompilation=false
 
       - name: Collect TheCat.exe.
         shell: cmd

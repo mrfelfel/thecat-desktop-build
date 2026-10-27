@@ -4,9 +4,15 @@
 # For license and copyright information please follow this link:
 # https://github.com/desktop-app/legal/blob/master/LEGAL
 
-# Empty keeps /MP bare, i.e. one job per core, which is upstream's behaviour.
-# deploy/prepare-win.bat passes 1 for CI: several cl.exe at once on a 16 GB
-# runner exhausts the heap (C1060) and a different header dies every run.
+# Upstream leaves this empty, which makes cl.exe take every core. That is fine
+# on a workstation and fatal on the 4-core, 16 GB CI runner, where a single
+# window/ or wallet/ translation unit already needs most of the memory: 24 of
+# them died with C1060 in one run, and every one of them was started while
+# another was still going. deploy/prepare-win.bat passes 1 there.
+#
+# Setting it to 1 is not enough on its own, because MSBuild appends its own
+# /MP from MultiProcessorCompilation and the last flag wins; the app build
+# passes -p:MultiProcessorCompilation=false for that half.
 set(tdesktop_msvc_mp_count "" CACHE STRING
     "Jobs for cl.exe /MP, empty for all cores")
 
