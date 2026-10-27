@@ -73,17 +73,32 @@ jobs:
           # carry whichever toolset built them.
           toolset: ${{ env.TOOLSET }}
 
-      - name: Restore prepared Libraries.
+      - name: Find the newest prepared Libraries.
         id: deps
+        shell: pwsh
+        # download-artifact defaults run-id to the *current* run, which never
+        # uploaded this artifact, so asking for it without one reports
+        # "Artifact not found" however many times the deps job has run.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $id = gh api "repos/${{ github.repository }}/actions/artifacts" `
+            --jq '[.artifacts[] | select(.name == "thecat-windows-deps-mt1444" and .expired == false)]
+                  | sort_by(.created_at) | last | .workflow_run.id // empty'
+          if (-not $id) {
+            "::error::no unexpired thecat-windows-deps-mt1444 artifact; run TheCat Windows deps first"
+            exit 1
+          }
+          "run-id=$id" >> $env:GITHUB_OUTPUT
+          "using artifact from run $id"
+
+      - name: Restore prepared Libraries.
         uses: actions/download-artifact@v5
         with:
           name: thecat-windows-deps-mt1444
           path: .
-          # Two artifacts sharing this name (an old one left behind) make this
-          # action report "Artifact not found", which is indistinguishable
-          # from the artifact never existing. Say so instead of silently
-          # starting a 4-hour cold build.
-          if-no-files-found: error
+          run-id: ${{ steps.deps.outputs.run-id }}
+          github-token: ${{ github.token }}
 
       - name: Patch, brand and prepare.
         shell: cmd
