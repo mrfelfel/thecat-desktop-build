@@ -79,10 +79,11 @@ jobs:
         with:
           name: thecat-windows-deps-mt1444
           path: .
-        # A warm tree turns prepare into a no-op; without one this falls
-        # through to the full build. Kept best-effort because the uploaded
-        # tree is large and a partial restore must not fail the job by itself.
-        continue-on-error: true
+          # Two artifacts sharing this name (an old one left behind) make this
+          # action report "Artifact not found", which is indistinguishable
+          # from the artifact never existing. Say so instead of silently
+          # starting a 4-hour cold build.
+          if-no-files-found: error
 
       - name: Patch, brand and prepare.
         shell: cmd
@@ -122,15 +123,23 @@ jobs:
 
       - name: Build TheCat.
         shell: cmd
-        # One project at a time. The runner has 4 cores and 16 GB, and the
-        # app is one huge vcxproj whose own /MP then fills those cores. With
-        # --parallel MSBuild started three project builds beside it and cl.exe
-        # ran out of heap (C1060) about 40 minutes in, on a different file
-        # every run. Single-project removes the oversubscription; the cost is
-        # wall clock, not reachability.
+        # The runner has 4 cores and 16 GB. Left alone, cl.exe happily starts
+        # 29 compilations in one second on this one huge vcxproj, and each one
+        # pulls in all of lib_rpl and range-v3, so the box runs out and cl
+        # reports C1060 in a different header every run.
+        #
+        # Neither knob used here is the one that looks right:
+        #   - `-- /m:1` only caps MSBuild *nodes*, and a single vcxproj is one
+        #     node, so cl inside it still fans out.
+        #   - /MP<n> in options_win.cmake reaches the compile line but MSBuild
+        #     also sets its own, and the last one wins.
+        # CL_MPCount is the property MSBuild itself translates into /MP, so it
+        # is the one that sticks. CMAKE_BUILD_PARALLEL_LEVEL caps cmake's own
+        # target-level parallelism on top of that.
         run: |
           cd /d %TDESKTOP_SRC%
-          cmake --build out --config %BUILD_TYPE% --target Telegram -- /m:1
+          set CMAKE_BUILD_PARALLEL_LEVEL=1
+          cmake --build out --config %BUILD_TYPE% --target Telegram -- /m:1 /p:CL_MPCount=2
 
       - name: Collect TheCat.exe.
         shell: cmd
