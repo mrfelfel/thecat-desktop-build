@@ -5,8 +5,8 @@
 # https://github.com/desktop-app/legal/blob/master/LEGAL
 
 # Empty keeps /MP bare, i.e. one job per core, which is upstream's behaviour.
-# deploy/prepare-win.bat passes 2 for CI: four at once on a 16 GB runner
-# exhausts cl's heap (C1060) in a different header every run.
+# deploy/prepare-win.bat passes 1 for CI: several cl.exe at once on a 16 GB
+# runner exhausts the heap (C1060) and a different header dies every run.
 set(tdesktop_msvc_mp_count "" CACHE STRING
     "Jobs for cl.exe /MP, empty for all cores")
 
