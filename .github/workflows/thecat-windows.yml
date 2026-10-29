@@ -100,6 +100,38 @@ jobs:
           run-id: ${{ steps.deps.outputs.run-id }}
           github-token: ${{ github.token }}
 
+      - name: Trim the restored tree to what the build reads.
+        shell: pwsh
+        # Copied from upstream's win.yml ("Free up some disk space"), which
+        # trims with an allowlist rather than a denylist. Two entries are
+        # load-bearing and easy to drop by accident: cache_keys/ is what
+        # prepare.py compares to decide a stage can be skipped, and patches/
+        # is hashed into that same key — delete either and prepare silently
+        # rebuilds everything.
+        #
+        # The runner has ~14 GB free and the restored tree used to be 12.5 GB
+        # on its own, so disk, not just RAM, is worth defending here.
+        run: |
+          $before = (Get-PSDrive D).Free / 1GB
+          Get-ChildItem Libraries, ThirdParty -Recurse -File -ErrorAction SilentlyContinue |
+            Where-Object {
+              $_.Extension -notin @('.lib','.a','.exe','.h','.hpp','.inc','.cmake','.pc') -and
+              $_.FullName -notmatch '\\(include|objects-[^\\]*|cache_keys|patches|nv-codec-headers)\\'
+            } |
+            Remove-Item -Force -ErrorAction SilentlyContinue
+          $after = (Get-PSDrive D).Free / 1GB
+          "free disk: {0:N1} GB -> {1:N1} GB" -f $before, $after
+
+      - name: Report what the runner has.
+        shell: pwsh
+        # The last run died with GitHub's annotation "Out of memory." and no
+        # step reported a number, so there was nothing to argue from.
+        run: |
+          "RAM total : {0:N1} GB" -f ((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB)
+          "RAM free  : {0:N1} GB" -f ((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1MB)
+          "CPU       : $((Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors) logical"
+          "Disk D free: {0:N1} GB" -f ((Get-PSDrive D).Free / 1GB)
+
       - name: Patch, brand and prepare.
         shell: cmd
         # With the artifact in place, prepare is a no-op: every stage finds a
