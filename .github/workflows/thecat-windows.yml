@@ -132,6 +132,34 @@ jobs:
           "Pagefile   : $((Get-CimInstance Win32_PageFileUsage).
               ForEach({ '{0:N1} GB {1}' -f ($_.AllocatedBaseSize/1024), $_.Name }) -join ', ')"
 
+      - name: Give the runner room to spill to disk.
+        shell: pwsh
+        continue-on-error: true
+        # The serial build compiled 1948 of ~1984 files in 3 h, then
+        # window_session_controller.cpp alone took 2.5 h — cl.exe thrashing
+        # against the pagefile. The runner has 140 GB free disk, so a
+        # pre-allocated 32 GB pagefile lets heavy translation units spill
+        # instead of stalling. Not load-bearing: /MP2 below is the speed fix;
+        # this only keeps the worst files from eating minutes.
+        run: |
+          $before = (Get-CimInstance Win32_PageFileUsage).AllocatedBaseSize
+          "pagefile before: $before MB"
+          $cs = Get-CimInstance Win32_ComputerSystem
+          if ($cs.AutomaticManagedPagefile) {
+            $cs.AutomaticManagedPagefile = $false
+            Set-CimInstance -InputObject $cs
+            "automatic management off"
+          }
+          $pf = Get-CimInstance Win32_PageFileSetting -ErrorAction SilentlyContinue
+          if ($pf) {
+            $pf.InitialSize = 32768
+            $pf.MaximumSize = 32768
+            Set-CimInstance -InputObject $pf
+            "pagefile set to 32 GB"
+          }
+          $after = (Get-CimInstance Win32_PageFileUsage).AllocatedBaseSize
+          "pagefile after: $after MB"
+
       - name: Patch, brand and prepare.
         shell: cmd
         # With the artifact in place, prepare is a no-op: every stage finds a
@@ -164,21 +192,21 @@ jobs:
           $line = Select-String -Path $cache -Pattern '^tdesktop_msvc_mp_count:' |
             Select-Object -First 1
           "cache: $($line.Line)"
-          if (-not ($line -and $line.Line -match '=1$')) {
-            throw "tdesktop_msvc_mp_count is not 1; the cap did not reach cmake"
+          if (-not ($line -and $line.Line -match '=2$')) {
+            throw "tdesktop_msvc_mp_count is not 2; the cap did not reach cmake"
           }
 
       - name: Build TheCat.
         shell: cmd
-        # The runner has 4 cores and 16 GB, and a single cl.exe compiling one
-        # of the window/ or wallet/ files already needs most of that: 24 of
-        # them died with C1060 in one run, and the log shows each one starting
-        # while the previous was still compiling.
+        # /MP2 is the sweet spot measured from three runs: full parallelism
+        # (bare /MP) died with C1060 then "Out of memory." after 24 failures;
+        # serial (/MP1) compiled 98 % of files in 3 h and then one file took
+        # 2.5 h thrashing against the pagefile. Two concurrent cl.exe
+        # processes fit in the box and roughly halve the wall clock.
         #
-        # MultiProcessorCompilation=false is the load-bearing flag here, not
-        # the /MP count: MSBuild writes its own /MP from that property after
-        # whatever CMAKE_CXX_FLAGS carried, so the count alone loses. With the
-        # property off there is exactly one cl.exe per compile.
+        # MultiProcessorCompilation=false stops MSBuild from appending its
+        # own /MP after the one CMake puts on the line — without it the
+        # count from options_win.cmake is silently overridden.
         run: |
           cd /d %TDESKTOP_SRC%
           set CMAKE_BUILD_PARALLEL_LEVEL=1
