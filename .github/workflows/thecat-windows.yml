@@ -102,21 +102,21 @@ jobs:
 
       - name: Trim the restored tree to what the build reads.
         shell: pwsh
-        # Copied from upstream's win.yml ("Free up some disk space"), which
-        # trims with an allowlist rather than a denylist. Two entries are
-        # load-bearing and easy to drop by accident: cache_keys/ is what
-        # prepare.py compares to decide a stage can be skipped, and patches/
-        # is hashed into that same key — delete either and prepare silently
-        # rebuilds everything.
+        # Based on upstream's win.yml ("Free up some disk space"), which trims
+        # with an allowlist rather than a denylist.
         #
-        # The runner has ~14 GB free and the restored tree used to be 12.5 GB
-        # on its own, so disk, not just RAM, is worth defending here.
+        # python/ is not in upstream's list because their runner keeps it
+        # elsewhere; here it lives inside Libraries and prepare.py declares
+        # `depends: python/Scripts/activate.bat` on four stages, so dropping it
+        # makes stage 15 die with "Nothing found: python/Scripts/activate.bat".
+        # The same goes for anything else a stage names in a `depends:` line —
+        # check those before shortening this list.
         run: |
           $before = (Get-PSDrive D).Free / 1GB
           Get-ChildItem Libraries, ThirdParty -Recurse -File -ErrorAction SilentlyContinue |
             Where-Object {
-              $_.Extension -notin @('.lib','.a','.exe','.h','.hpp','.inc','.cmake','.pc') -and
-              $_.FullName -notmatch '\\(include|objects-[^\\]*|cache_keys|patches|nv-codec-headers)\\'
+              $_.Extension -notin @('.lib','.a','.exe','.h','.hpp','.inc','.cmake','.pc','.bat','.py') -and
+              $_.FullName -notmatch '\\(include|objects-[^\\]*|cache_keys|patches|nv-codec-headers|python|Scripts)\\'
             } |
             Remove-Item -Force -ErrorAction SilentlyContinue
           $after = (Get-PSDrive D).Free / 1GB
