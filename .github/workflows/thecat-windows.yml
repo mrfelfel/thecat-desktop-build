@@ -131,6 +131,8 @@ jobs:
           "RAM free  : {0:N1} GB" -f ((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1MB)
           "CPU       : $((Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors) logical"
           "Disk D free: {0:N1} GB" -f ((Get-PSDrive D).Free / 1GB)
+          "Pagefile   : $((Get-CimInstance Win32_PageFileUsage).
+              ForEach({ '{0:N1} GB {1}' -f ($_.AllocatedBaseSize/1024), $_.Name }) -join ', ')"
 
       - name: Patch, brand and prepare.
         shell: cmd
