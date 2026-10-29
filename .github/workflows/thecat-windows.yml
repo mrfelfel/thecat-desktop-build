@@ -100,24 +100,22 @@ jobs:
           run-id: ${{ steps.deps.outputs.run-id }}
           github-token: ${{ github.token }}
 
-      - name: Trim the restored tree to what the build reads.
+      - name: Drop only what nothing reads.
         shell: pwsh
-        # Based on upstream's win.yml ("Free up some disk space"), which trims
-        # with an allowlist rather than a denylist.
+        # An allowlist does not work here, however tempting upstream's version
+        # in win.yml looks: this tree holds generated *sources* the build
+        # compiles, and any extension-based allowlist deletes them. Copying
+        # upstream's list broke prepare twice — first dropping
+        # python/Scripts/activate.bat, then Libraries/win64/tdesktop_rust/
+        # out/src/wallet_engine/wallet_engine.cpp, which
+        # cmake/external/wallet_engine/CMakeLists.txt compiles.
         #
-        # python/ is not in upstream's list because their runner keeps it
-        # elsewhere; here it lives inside Libraries and prepare.py declares
-        # `depends: python/Scripts/activate.bat` on four stages, so dropping it
-        # makes stage 15 die with "Nothing found: python/Scripts/activate.bat".
-        # The same goes for anything else a stage names in a `depends:` line —
-        # check those before shortening this list.
+        # So: a short denylist of files proven unreadable by a later build.
+        # And it is not even needed for disk — the runner has 140 GB free.
         run: |
           $before = (Get-PSDrive D).Free / 1GB
           Get-ChildItem Libraries, ThirdParty -Recurse -File -ErrorAction SilentlyContinue |
-            Where-Object {
-              $_.Extension -notin @('.lib','.a','.exe','.h','.hpp','.inc','.cmake','.pc','.bat','.py') -and
-              $_.FullName -notmatch '\\(include|objects-[^\\]*|cache_keys|patches|nv-codec-headers|python|Scripts)\\'
-            } |
+            Where-Object { $_.Extension -in @('.pdb', '.ilk', '.iobj', '.ipdb') } |
             Remove-Item -Force -ErrorAction SilentlyContinue
           $after = (Get-PSDrive D).Free / 1GB
           "free disk: {0:N1} GB -> {1:N1} GB" -f $before, $after
