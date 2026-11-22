@@ -86,13 +86,17 @@ jobs:
             --jq '[.artifacts[] | select(.name == "thecat-windows-deps-mt1444" and .expired == false)]
                   | sort_by(.created_at) | last | .workflow_run.id // empty'
           if (-not $id) {
-            "::error::no unexpired thecat-windows-deps-mt1444 artifact; run TheCat Windows deps first"
-            exit 1
+            # Not an error. An expired artifact only means prepare has to
+            # build the tree from source again, which is what this workflow
+            # did before artifacts existed. Failing here just hides that.
+            "::warning::no unexpired dependency artifact; prepare will run cold (~80 min)"
+          } else {
+            "run-id=$id" >> $env:GITHUB_OUTPUT
+            "using artifact from run $id"
           }
-          "run-id=$id" >> $env:GITHUB_OUTPUT
-          "using artifact from run $id"
 
       - name: Restore prepared Libraries.
+        if: steps.deps.outputs.run-id != ''
         uses: actions/download-artifact@v5
         with:
           name: thecat-windows-deps-mt1444

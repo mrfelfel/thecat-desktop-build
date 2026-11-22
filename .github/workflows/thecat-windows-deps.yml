@@ -105,5 +105,5 @@ jobs:
             ThirdParty
           # Short retention: this is a build cache, not a release. It is
           # rebuilt on demand whenever prepare.py changes.
-          retention-days: 7
+          retention-days: 30
           compression-level: 0
