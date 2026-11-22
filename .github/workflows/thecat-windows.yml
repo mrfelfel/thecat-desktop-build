@@ -132,33 +132,15 @@ jobs:
           "Pagefile   : $((Get-CimInstance Win32_PageFileUsage).
               ForEach({ '{0:N1} GB {1}' -f ($_.AllocatedBaseSize/1024), $_.Name }) -join ', ')"
 
-      - name: Give the runner room to spill to disk.
+      - name: Note the pagefile size.
         shell: pwsh
-        continue-on-error: true
-        # The serial build compiled 1948 of ~1984 files in 3 h, then
-        # window_session_controller.cpp alone took 2.5 h — cl.exe thrashing
-        # against the pagefile. The runner has 140 GB free disk, so a
-        # pre-allocated 32 GB pagefile lets heavy translation units spill
-        # instead of stalling. Not load-bearing: /MP2 below is the speed fix;
-        # this only keeps the worst files from eating minutes.
+        # Not resizable from here: a size change only takes effect after a
+        # reboot, and the run that "set" it to 32 GB still reported 2944 MB
+        # afterwards. Recorded because it is the reason a single heavy
+        # translation unit thrashed for 2.5 h in the serial run.
         run: |
-          $before = (Get-CimInstance Win32_PageFileUsage).AllocatedBaseSize
-          "pagefile before: $before MB"
-          $cs = Get-CimInstance Win32_ComputerSystem
-          if ($cs.AutomaticManagedPagefile) {
-            $cs.AutomaticManagedPagefile = $false
-            Set-CimInstance -InputObject $cs
-            "automatic management off"
-          }
-          $pf = Get-CimInstance Win32_PageFileSetting -ErrorAction SilentlyContinue
-          if ($pf) {
-            $pf.InitialSize = 32768
-            $pf.MaximumSize = 32768
-            Set-CimInstance -InputObject $pf
-            "pagefile set to 32 GB"
-          }
-          $after = (Get-CimInstance Win32_PageFileUsage).AllocatedBaseSize
-          "pagefile after: $after MB"
+          "pagefile: $((Get-CimInstance Win32_PageFileUsage).AllocatedBaseSize) MB"
+          "free disk: {0:N1} GB" -f ((Get-PSDrive D).Free / 1GB)
 
       - name: Patch, brand and prepare.
         shell: cmd
@@ -196,21 +178,45 @@ jobs:
             throw "tdesktop_msvc_mp_count is not 2; the cap did not reach cmake"
           }
 
-      - name: Build TheCat.
+      - name: Build TheCat, retrying what runs out of heap.
         shell: cmd
-        # /MP2 is the sweet spot measured from three runs: full parallelism
-        # (bare /MP) died with C1060 then "Out of memory." after 24 failures;
-        # serial (/MP1) compiled 98 % of files in 3 h and then one file took
-        # 2.5 h thrashing against the pagefile. Two concurrent cl.exe
-        # processes fit in the box and roughly halve the wall clock.
+        # Measured across four runs on this runner (4 cores, 16 GB):
+        #   bare /MP  -> 24 x C1060, then "Out of memory." at 2 h 48
+        #   /MP1      -> 6 h timeout; one file alone took 2.5 h thrashing
+        #   /MP2      -> all 1984 files attempted in 2.05 h, 38 x C1060
+        #
+        # /MP2 is the right throughput; the failures are a few dozen heavy
+        # translation units, and they fail late, when the linker and codegen
+        # are also resident. A retry therefore has two things in its favour:
+        # MSBuild leaves no .obj for a failed file, so it recompiles only
+        # those, and by then nothing else is running.
+        #
+        # The command is deliberately identical each time. Changing the /MP
+        # count would change the compile command line, and MSBuild's tlog
+        # compares that — every one of the 1946 already-built files would be
+        # rebuilt from scratch, which is the opposite of the point.
         #
         # MultiProcessorCompilation=false stops MSBuild from appending its
-        # own /MP after the one CMake puts on the line — without it the
-        # count from options_win.cmake is silently overridden.
+        # own /MP after the one CMake puts on the line.
         run: |
           cd /d %TDESKTOP_SRC%
           set CMAKE_BUILD_PARALLEL_LEVEL=1
+
+          echo.=== pass 1
           cmake --build out --config %BUILD_TYPE% --target Telegram -- /m:1 /p:MultiProcessorCompilation=false
+          if not errorlevel 1 exit /b 0
+
+          echo.=== pass 2
+          cmake --build out --config %BUILD_TYPE% --target Telegram -- /m:1 /p:MultiProcessorCompilation=false
+          if not errorlevel 1 exit /b 0
+
+          echo.=== pass 3
+          cmake --build out --config %BUILD_TYPE% --target Telegram -- /m:1 /p:MultiProcessorCompilation=false
+          if not errorlevel 1 exit /b 0
+
+          echo.=== pass 4
+          cmake --build out --config %BUILD_TYPE% --target Telegram -- /m:1 /p:MultiProcessorCompilation=false
+          exit /b %ERRORLEVEL%
 
       - name: Collect TheCat.exe.
         shell: cmd
