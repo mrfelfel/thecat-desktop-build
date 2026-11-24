@@ -136,12 +136,19 @@ jobs:
           "Pagefile   : $((Get-CimInstance Win32_PageFileUsage).
               ForEach({ '{0:N1} GB {1}' -f ($_.AllocatedBaseSize/1024), $_.Name }) -join ', ')"
 
+      - name: Grow the pagefile.
+        uses: al-cheb/configure-pagefile-action@v1.5
+        # The runner's pagefile is 2.9 GB against 16 GB of RAM, so the commit
+        # limit is ~19 GB. The link step needs more than that and dies with
+        # LNK1102 even though 207 GB of disk sits unused. This resizes it
+        # live, without the reboot that the wmic/registry routes require.
+        with:
+          minimum-size: 32GB
+          maximum-size: 32GB
+          disk-root: "D:"
+
       - name: Note the pagefile size.
         shell: pwsh
-        # Not resizable from here: a size change only takes effect after a
-        # reboot, and the run that "set" it to 32 GB still reported 2944 MB
-        # afterwards. Recorded because it is the reason a single heavy
-        # translation unit thrashed for 2.5 h in the serial run.
         run: |
           "pagefile: $((Get-CimInstance Win32_PageFileUsage).AllocatedBaseSize) MB"
           "free disk: {0:N1} GB" -f ((Get-PSDrive D).Free / 1GB)
