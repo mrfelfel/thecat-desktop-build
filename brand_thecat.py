@@ -565,9 +565,6 @@ WHITELIST_OLD = """		u"telegram.dog"_q,
 
 WHITELIST_NEW = """		u"cr0.ir"_q,
 		u"catroom.ir"_q,
-		u"telegram.dog"_q,
-		u"telegram.me"_q,
-		u"t.me"_q,
 		u"telegra.ph"_q,
 		u"te.legra.ph"_q,
 		u"graph.org"_q,
@@ -577,8 +574,9 @@ WHITELIST_NEW = """		u"cr0.ir"_q,
 def rewrite_whitelisted_domains(src: pathlib.Path) -> None:
     """Put cr0.ir and catroom.ir into the app's internal-link host list.
 
-    telegram.org is dropped rather than kept: theCat has no telegram.org, and
-    leaving it in would keep treating a host we do not serve as our own.
+    telegram.org, t.me, telegram.me and telegram.dog are all dropped: theCat
+    serves none of them, and keeping any means a link to a host we do not have
+    is still handled as ours. Existing t.me links now open in the browser.
     """
     path = src / "Telegram/SourceFiles/core/click_handler_types.cpp"
     head, body = split_legal_header(path.read_text(encoding="utf-8"))
@@ -591,7 +589,7 @@ def rewrite_whitelisted_domains(src: pathlib.Path) -> None:
     # vector above, so it has to name cr0.ir itself or our own links get the
     # confirmation prompt that belongs to foreign short-link hosts.
     shortlink_old = '"(^|\\\\.)(telegram\\\\.(me|dog)|t\\\\.me)$"'
-    shortlink_new = '"(^|\\\\.)(telegram\\\\.(me|dog)|t\\\\.me|cr0\\\\.ir)$"'
+    shortlink_new = '"(^|\\\\.)cr0\\\\.ir$"'
     if shortlink_old not in body:
         die(f"IsTelegramShortLinkHost regex not found in {path.name}; "
             "upstream changed it, update shortlink_old")
