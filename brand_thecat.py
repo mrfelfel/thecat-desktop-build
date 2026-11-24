@@ -549,6 +549,58 @@ def rebrand_cmake_and_plist(src: pathlib.Path) -> None:
             print("  plist: GetInfoString → TheCat")
 
 
+# The app only treats a URL as an internal link when its host is in this list,
+# so rewriting prose links to cr0.ir without touching the list leaves those
+# links opening in a browser instead of the app. The hosts are bare string
+# literals ("t.me", with no slash), which LINK_PAIRS does not match.
+WHITELIST_OLD = """		u"telegram.dog"_q,
+		u"telegram.me"_q,
+		u"telegram.org"_q,
+		u"t.me"_q,
+		u"telegra.ph"_q,
+		u"te.legra.ph"_q,
+		u"graph.org"_q,
+		u"telesco.pe"_q,
+		u"fragment.com"_q,"""
+
+WHITELIST_NEW = """		u"cr0.ir"_q,
+		u"catroom.ir"_q,
+		u"telegram.dog"_q,
+		u"telegram.me"_q,
+		u"t.me"_q,
+		u"telegra.ph"_q,
+		u"te.legra.ph"_q,
+		u"graph.org"_q,
+		u"telesco.pe"_q,"""
+
+
+def rewrite_whitelisted_domains(src: pathlib.Path) -> None:
+    """Put cr0.ir and catroom.ir into the app's internal-link host list.
+
+    telegram.org is dropped rather than kept: theCat has no telegram.org, and
+    leaving it in would keep treating a host we do not serve as our own.
+    """
+    path = src / "Telegram/SourceFiles/core/click_handler_types.cpp"
+    head, body = split_legal_header(path.read_text(encoding="utf-8"))
+    if WHITELIST_OLD not in body:
+        die(f"whitelisted domains block not found in {path.name}; "
+            "upstream changed it, update WHITELIST_OLD")
+    body = body.replace(WHITELIST_OLD, WHITELIST_NEW, 1)
+    # A second, separate list decides which of those hosts are *short links*
+    # (and so need an extra confirmation before opening). It does not read the
+    # vector above, so it has to name cr0.ir itself or our own links get the
+    # confirmation prompt that belongs to foreign short-link hosts.
+    shortlink_old = '"(^|\\\\.)(telegram\\\\.(me|dog)|t\\\\.me)$"'
+    shortlink_new = '"(^|\\\\.)(telegram\\\\.(me|dog)|t\\\\.me|cr0\\\\.ir)$"'
+    if shortlink_old not in body:
+        die(f"IsTelegramShortLinkHost regex not found in {path.name}; "
+            "upstream changed it, update shortlink_old")
+    body = body.replace(shortlink_old, shortlink_new, 1)
+
+    path.write_text(head + body, encoding="utf-8")
+    print(f"  whitelist → {path.relative_to(src)}")
+
+
 def add_persian_lproj(src: pathlib.Path) -> None:
     """Note: adding fa.lproj here is not enough for a macOS bundle.
 
@@ -587,6 +639,7 @@ def main() -> None:
     make_tray_icons(src, pathlib.Path(args.icon))
     print("== links ==")
     rewrite_links(src)
+    rewrite_whitelisted_domains(src)
     print("== brand words ==")
     rebrand_strings(src)
     print("== names ==")
